@@ -1,0 +1,13 @@
+# Test overlay: points n8n at the mock server and skips real CRM/Slack/email writes.
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml --profile test up -d
+services:
+  n8n:
+    environment:
+      TAVILY_BASE_URL: http://mock:8099/tavily
+      GEMINI_BASE_URL: http://mock:8099/gemini
+      DRY_RUN: "true"
+      DEMO_MODE: "true"
+      EVAL_AUTO_APPROVE: "true"
+    depends_on:
+      mock:
+        condition: service_healthy

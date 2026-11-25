@@ -1,0 +1,17 @@
+{
+  "harborlogistics.example": {
+    "search_results": [
+      {"title": "Harbor Logistics – Freight forwarding and cold-chain", "url": "https://harborlogistics.example/about", "content": "Harbor Logistics is a mid-size freight logistics company with about 180 employees and offices in Rotterdam and Singapore.", "score": 0.92},
+      {"title": "Harbor Logistics launches cold-chain service", "url": "https://news.example/harbor-cold-chain", "content": "This year Harbor Logistics launched a new cold-chain service for pharmaceutical shipments.", "score": 0.81}
+    ],
+    "page_text": "Harbor Logistics. Freight forwarding, warehousing and cold-chain logistics. Offices in Rotterdam and Singapore. About 180 people."
+  },
+  "unreachable.example": {
+    "unreachable": true,
+    "search_results": []
+  },
+  "_default": {
+    "search_results": [],
+    "page_text": ""
+  }
+}

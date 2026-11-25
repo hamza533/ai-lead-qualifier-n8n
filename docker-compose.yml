@@ -1,0 +1,77 @@
+# n8n + Postgres for development and demos.
+# `make dev` starts it; `docker compose --profile test up` adds the mock server
+# used by the end-to-end tests and CI.
+name: leadpilot
+
+x-n8n-env: &n8n-env
+  env_file: .env
+  environment:
+    DB_TYPE: postgresdb
+    # Workflows read non-secret settings ($env.GEMINI_BASE_URL etc.) in expressions.
+    N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+    # Code nodes may use node:crypto (HMAC check, lead hash). Nothing else.
+    NODE_FUNCTION_ALLOW_BUILTIN: crypto
+    # File nodes may only read the mounted config folder.
+    N8N_RESTRICT_FILE_ACCESS_TO: /home/node/.n8n-files
+    N8N_RUNNERS_MODE: internal
+    N8N_DIAGNOSTICS_ENABLED: "false"
+    N8N_PERSONALIZATION_ENABLED: "false"
+    N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+    N8N_SECURE_COOKIE: "false" # dev over http://localhost; the tunnel and Azure use HTTPS
+    EXECUTIONS_DATA_SAVE_ON_SUCCESS: all
+    N8N_LOG_FORMAT: json
+    N8N_LOG_LEVEL: info
+
+services:
+  postgres:
+    image: postgres:16.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_POSTGRESDB_USER:-n8n}
+      POSTGRES_PASSWORD: ${DB_POSTGRESDB_PASSWORD:?run make setup first}
+      POSTGRES_DB: ${DB_POSTGRESDB_DATABASE:-n8n}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  n8n:
+    image: n8nio/n8n:2.49.6
+    restart: unless-stopped
+    <<: *n8n-env
+    ports:
+      - "127.0.0.1:${N8N_HOST_PORT:-5678}:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./config:/home/node/.n8n-files/config:ro
+      - ./workflows:/workflows
+      - ./.tmp/n8n-io:/io
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5678/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+
+  mock:
+    profiles: ["test"]
+    build:
+      context: .
+      dockerfile: tests/mock_server/Dockerfile
+    image: leadpilot-mock:dev
+    ports:
+      - "127.0.0.1:${MOCK_HOST_PORT:-8099}:8099"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8099/health')"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  postgres_data:
+  n8n_data:
