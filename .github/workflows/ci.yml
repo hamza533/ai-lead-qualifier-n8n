@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-test:
+    name: Lint + unit tests + workflow lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - run: make check
+
+  e2e:
+    name: n8n end-to-end against mocks (DRY_RUN)
+    runs-on: ubuntu-24.04
+    needs: lint-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Create .env with generated secrets and placeholder keys
+        run: uv run python -m scripts.init_env
+      - name: Boot n8n + Postgres + mock, import credentials and workflows, run e2e
+        run: make test-e2e
+      - name: n8n logs on failure
+        if: failure()
+        run: docker compose logs --no-color n8n mock | tail -n 300
+      - if: always()
+        run: make e2e-down

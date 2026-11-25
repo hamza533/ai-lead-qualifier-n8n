@@ -1,0 +1,26 @@
+{
+  "profile": {
+    "what_they_do": {"value": "Unknown", "confidence": "low", "sources": []},
+    "industry": {"value": "Unknown", "confidence": "low", "sources": []},
+    "size_estimate": {"value": "Unknown", "confidence": "low", "sources": []},
+    "location": {"value": "Unknown", "confidence": "low", "sources": []},
+    "notable_facts": []
+  },
+  "score": {
+    "ratings": [
+      {"key": "industry_fit", "rating": 1, "reason": "Not enough information", "evidence": "form"},
+      {"key": "company_size", "rating": 1, "reason": "Not enough information", "evidence": "form"},
+      {"key": "role_seniority", "rating": 1, "reason": "Not enough information", "evidence": "form"},
+      {"key": "budget", "rating": 1, "reason": "Not enough information", "evidence": "form"},
+      {"key": "clear_need", "rating": 1, "reason": "Not enough information", "evidence": "form"}
+    ]
+  },
+  "draft": {
+    "subject": "Thanks for getting in touch",
+    "body": "Hi,\n\nThanks for your message. We'd be glad to talk it through.\n\nBest regards"
+  },
+  "judge": {
+    "claims": [],
+    "grounded": true
+  }
+}

@@ -1,0 +1,29 @@
+# Secrets
+.env
+.env.*
+!.env.example
+!.env.ci
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Tool-specific folders (CONVENTIONS 3a)
+.claude/
+.cursor/
+.codex/
+.gemini/
+.agent/
+.vscode/
+.idea/
+
+# Local runtime
+.tmp/
+eval/.cache/
+*.log
+.DS_Store
+Thumbs.db
