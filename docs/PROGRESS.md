@@ -26,7 +26,7 @@
 - **uv on Windows:** run uv from PowerShell; in Git Bash, uv's Python 3.12 junction isn't resolved.
 - **Port 5678 is used by another local n8n**, so this machine's `.env` sets `N8N_HOST_PORT=5680` (WEBHOOK_URL/N8N_URL match).
 - Accounts still needed (from M4; mocks cover earlier milestones): HubSpot private app, Slack app, Tavily key, Gemini key, SMTP/Gmail app password, cloudflared.
-- Stitch showcase screens (`docs/ui/01-landing.png` … `07-results.png`) are not exported yet. The Stitch project "LeadPilot UI Showcase" has all 7 screens; export them as PNG at 1920×1080.
+- Showcase numbers on `docs/ui` screens 1, 4 and 7 are placeholders; replace them with real `eval/results.md` values after M7 and re-render (see `docs/ui/README.md`).
 
 ## How to verify
 ```
@@ -40,3 +40,4 @@ Expected: `n8n ready at http://localhost:5680`, `created/updated 5 credentials`,
 ## Session log
 - 2026-11-25 – Claude Code – Repo initialised; docs, architecture and progress plan written.
 - 2026-11-26 – Claude Code – M0 foundation built and verified (n8n boots on Postgres, owner from env, credentials import encrypted with fixed IDs, check + e2e smoke green).
+- 2026-11-26 – Claude Code – Stitch showcase exported to docs/ui (7 frames 1920×1080 + full pages + HTML + design tokens); invented claims and real-looking domains corrected.
