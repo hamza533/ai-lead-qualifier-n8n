@@ -225,3 +225,41 @@ def ops(n8n_url: str, env: dict[str, str]) -> Callable[..., httpx.Response]:
         )  # fmt: skip
 
     return _ops
+
+
+# --- send + CRM (M5) --------------------------------------------------------------------
+FINAL_STATUSES = ("approved_sent", "rejected_by_reviewer", "needs_manual_follow_up",
+                  "cold_recorded", "error_recoverable")  # fmt: skip
+
+
+def final_row(lead_id: str, timeout: float = 90) -> dict[str, Any]:
+    """Wait until the pipeline has finished with the lead; returns the row as a dict."""
+    statuses = ", ".join(f"'{s}'" for s in FINAL_STATUSES)
+
+    def done() -> list[list[str]]:
+        return sql(
+            "SELECT row_to_json(l) FROM leads l "
+            f"WHERE lead_id = '{lead_id}' AND status IN ({statuses}) AND completed_at IS NOT NULL"
+        )
+
+    row: dict[str, Any] = json.loads(wait_for(done, timeout)[0][0])
+    return row
+
+
+@pytest.fixture()
+def mailpit(env: dict[str, str]) -> Iterator[httpx.Client]:
+    client = httpx.Client(base_url=env.get("MAILPIT_URL", "http://localhost:8025"), timeout=10)
+    client.delete("/api/v1/messages")
+    yield client
+
+
+def emails_to(mailpit: httpx.Client, address: str) -> list[dict[str, Any]]:
+    """Full messages (with Text) sent to an address."""
+    listing = mailpit.get("/api/v1/messages").json().get("messages", [])
+    ids = [m["ID"] for m in listing if any(t["Address"] == address for t in m["To"])]
+    return [mailpit.get(f"/api/v1/message/{mid}").json() for mid in ids]
+
+
+def hubspot(mock: httpx.Client) -> dict[str, Any]:
+    state: dict[str, Any] = mock.get("/_control/hubspot").json()
+    return state
