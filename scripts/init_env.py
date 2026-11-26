@@ -29,6 +29,7 @@ def main() -> None:
         "WEBHOOK_HMAC_SECRET",
         "DB_POSTGRESDB_PASSWORD",
         "N8N_RUNNERS_AUTH_TOKEN",
+        "OPS_WEBHOOK_TOKEN",
     )
     for key in generated:
         if env.get(key) == PLACEHOLDER:

@@ -86,6 +86,15 @@ services:
       timeout: 3s
       retries: 20
 
+  mailpit:
+    profiles: ["test"]
+    image: axllent/mailpit:v1.27.11
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+    ports:
+      - "127.0.0.1:${MAILPIT_HOST_PORT:-8025}:8025"
+
 volumes:
   postgres_data:
   n8n_data:

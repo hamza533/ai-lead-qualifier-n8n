@@ -26,8 +26,9 @@ package = false
 testpaths = ["tests"]
 markers = [
   "e2e: needs a running n8n + mock server (make test-e2e)",
+  "dryrun: needs the test stack with DRY_RUN=true (make test-e2e-dryrun)",
 ]
-addopts = "-m 'not e2e'"
+addopts = "-m 'not e2e and not dryrun'"
 
 [tool.ruff]
 line-length = 100

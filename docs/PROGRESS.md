@@ -1,7 +1,7 @@
 # PROGRESS – handoff log
 
 ## Status
-**Current milestone:** M4 – Draft + Slack approval (next)
+**Current milestone:** M5 – Send + CRM sub-workflow (next)
 
 | # | Milestone | Status |
 |---|---|---|
@@ -9,7 +9,7 @@
 | M1 | Intake + validation | done (merged to `main` locally) |
 | M2 | Enrichment sub-workflow | done (merged to `main` locally) |
 | M3 | Scoring sub-workflow | done (merged to `main` locally) |
-| M4 | Draft + Slack approval | not started |
+| M4 | Draft + Slack approval | done (merged to `main` locally) |
 | M5 | Send + CRM sub-workflow | not started |
 | M6 | Errors + reliability | not started |
 | M7 | Evaluation | not started |
@@ -24,7 +24,9 @@
 
 **Done in M3:** `sub-score` (rating prompt with criteria + rating guides, no names/emails/weights, injection warning; Gemini `responseSchema`; "Compute score" Code node: points, score, tier, `issues` for missing/invalid ratings and unresearched evidence), pipeline stores score/tier/scorecard (migration `003`). `tests/unit/test_score_maths.py` runs the exported node under Node.js vs a Python reference (300 seeded rating sets + edge cases). Linter compiles Code nodes. Mock per-task Gemini failures (`gemini:score`). 9 scoring e2e tests; enrichment tests now assert `enrichment_status` (status moves on to `scored`).
 
-**Next step:** M4 on `feat/m4-approval`: `config/reply_style.md`, grounded reply draft (Gemini) for hot/warm leads, Slack Send and Wait with a custom form (approve / approve with edits / reject), 4 h reminder, 24 h timeout path (short override for tests). Needs a Slack app for real runs (see Blockers); build with `DRY_RUN` + `EVAL_AUTO_APPROVE` first.
+**Done in M4:** `sub-draft` (style guide + message + research → Gemini draft → code checks: forbidden phrases, unsupported figures, unread sources, booking link), approval request in Slack (HTTP) with a "Review and decide" button to an n8n Wait-node form (approve / approve with edits / reject, reviewer name), timeout → `needs_manual_follow_up`, threaded reminders (`approval-reminders`), ops webhook, eval auto-approve. Test stack fakes Slack/HubSpot/SMTP. See DECISIONS 28–35.
+
+**Next step:** M5 on `feat/m5-send-crm`: send the approved email (SMTP, demo allow-list), `sub-crm-update` (HubSpot contact upsert by email, company, association, ai_* properties, note, follow-up task), Slack message update with the outcome, cold path, daily cold digest + retention purge, `make hubspot-setup`.
 
 ## Blockers / open questions
 - **No GitHub remote yet.** Milestones are merged locally with `--no-ff`; CI runs once the repo is pushed. Creating the public repo needs the owner's OK.
@@ -51,3 +53,4 @@ Expected: `n8n ready at http://localhost:5680`, `created/updated 6 credentials`,
 - 2026-11-26 – Claude Code – M1 intake + validation: webhook/form intakes, sub-validate, leads ledger, Postgres 17 + external runners; 24 e2e tests green on a fresh rebuild.
 - 2026-11-26 – Claude Code – M2 enrichment: sub-enrich with grounding guard and graceful degradation, usage tracking; 34 e2e tests green on a fresh rebuild.
 - 2026-11-26 – Claude Code – M3 scoring: sub-score with deterministic Compute score node, maths unit-tested on the exported node code, Code-node syntax lint; 43 e2e tests.
+- 2026-11-26 – Claude Code – M4 draft + approval: sub-draft with code checks, Slack request + Wait-node form (approve/edit/reject/timeout), threaded reminders, ops webhook, eval auto-approve; unit tests run the exported Check draft / Read decision code; 11 approval e2e tests.

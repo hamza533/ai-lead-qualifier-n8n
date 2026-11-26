@@ -42,6 +42,9 @@ WORKFLOW_FILES: dict[str, str] = {
     "lpSubCrmUpdate01": "sub-crm-update.json",
     "lpErrorHandler01": "error-handler.json",
     "lpDailyDigest001": "daily-cold-digest.json",
+    "lpSubDraft000001": "sub-draft.json",
+    "lpReminders00001": "approval-reminders.json",
+    "lpOpsWebhook0001": "ops-webhooks.json",
 }
 
 # Fields n8n adds on export that change on every save and would only add noise to diffs.
@@ -92,8 +95,14 @@ CREDENTIALS: list[dict[str, Any]] = [
             "password": "${SMTP_PASSWORD}",
             "host": "${SMTP_HOST}",
             "port": "${SMTP_PORT}",
-            "secure": True,
+            "secure": "${SMTP_SECURE}",
         },
+    },
+    {
+        "id": "lpCredOpsToken01",
+        "name": "LeadPilot ops token",
+        "type": "httpHeaderAuth",
+        "data": {"name": "X-LeadPilot-Ops-Token", "value": "${OPS_WEBHOOK_TOKEN}"},
     },
     {
         "id": "lpCredLeadsDb001",
@@ -110,6 +119,7 @@ CREDENTIALS: list[dict[str, Any]] = [
     },
 ]
 INTEGER_FIELDS = {"port"}
+BOOLEAN_FIELDS = {"secure"}
 
 
 def compose(*args: str, stdin: str | None = None, check: bool = True) -> str:
@@ -274,6 +284,8 @@ def credentials() -> None:
             placeholders.append(cred["name"])
         for field in INTEGER_FIELDS & data.keys():
             data[field] = int(data[field])
+        for field in BOOLEAN_FIELDS & data.keys():
+            data[field] = str(data[field]).strip().lower() in {"1", "true", "yes"}
         payload.append({**cred, "data": data})
     script = (
         "umask 077; cat > /tmp/lp-creds.json && "

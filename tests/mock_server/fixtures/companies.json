@@ -99,6 +99,20 @@
             "evidence": "form: message"
           }
         ]
+      },
+      "draft": {
+        "subject": "Your shipment-tracking portal",
+        "body": "Hi Daniel,\n\nThanks for getting in touch. You are looking for a customer portal where your clients can track their shipments, ideally live by Q2.\n\nWith the cold-chain service you launched this year, clear tracking for temperature-sensitive shipments sounds especially useful, and it is the kind of portal we build.\n\nCould we have a 20-minute call to scope it? You can pick a time here: https://northwind.example/book\n\nBest regards,\nThe Northwind Digital team",
+        "facts_used": [
+          {
+            "fact": "Wants a customer portal for shipment tracking by Q2",
+            "source": "form: message"
+          },
+          {
+            "fact": "Launched a cold-chain service this year",
+            "source": "https://news.example/harbor-cold-chain"
+          }
+        ]
       }
     }
   },
@@ -178,6 +192,16 @@
             "rating": 1,
             "reason": "Vague interest in a portal",
             "evidence": "form: message"
+          }
+        ]
+      },
+      "draft": {
+        "subject": "Your customer portal",
+        "body": "Hi Test,\n\nThanks for your message about a customer portal for your team. We would like to understand what it needs to do.\n\nCould we have a 20-minute call? You can pick a time here: https://northwind.example/book\n\nBest regards,\nThe Northwind Digital team",
+        "facts_used": [
+          {
+            "fact": "Wants a customer portal",
+            "source": "form: message"
           }
         ]
       }
@@ -265,6 +289,20 @@
             "rating": 2,
             "reason": "Booking portal but no timeline",
             "evidence": "form: message"
+          }
+        ]
+      },
+      "draft": {
+        "subject": "Booking portal for Coastline Clinics",
+        "body": "Hi Test,\n\nThanks for reaching out about a booking portal for your three clinics. We have helped companies like yours cut no-shows by 30% within a quarter.\n\nWould a short call next week work?\n\nBest regards,\nThe Northwind Digital team",
+        "facts_used": [
+          {
+            "fact": "Runs three clinics",
+            "source": "https://coastlineclinics.example"
+          },
+          {
+            "fact": "Cut no-shows by 30%",
+            "source": "https://invented.example/case-study"
           }
         ]
       }

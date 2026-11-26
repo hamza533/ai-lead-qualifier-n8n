@@ -1,0 +1,197 @@
+{
+  "id": "lpOpsWebhook0001",
+  "name": "LeadPilot – Ops webhook",
+  "description": null,
+  "active": true,
+  "nodes": [
+    {
+      "id": "a7d4e5f6-6d9e-4f3a-b14c-000000000004",
+      "name": "Ops webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "a7d4e5f6-6d9e-4f3a-b14c-0000000000aa",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "lpCredOpsToken01",
+          "name": "LeadPilot ops token"
+        }
+      },
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ops",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "a7d4e5f6-6d9e-4f3a-b14c-000000000002",
+      "name": "Route ops action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "run_reminders",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "a7d4e5f6-6d9e-4f3a-b14c-000000000001",
+                    "leftValue": "={{ $json.body.action }}",
+                    "rightValue": "run_reminders",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      }
+    },
+    {
+      "id": "a7d4e5f6-6d9e-4f3a-b14c-000000000003",
+      "name": "Run approval reminders",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        480,
+        -60
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "lpReminders00001"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "a7d4e5f6-6d9e-4f3a-b14c-000000000005",
+      "name": "Respond done",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        720,
+        -60
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, action: $('Ops webhook').first().json.body.action, processed: $input.all().filter((i) => i.json.lead_id).length }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "a7d4e5f6-6d9e-4f3a-b14c-000000000006",
+      "name": "Respond unknown action",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        480,
+        140
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, error: 'unknown action', actions: ['run_reminders'] }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Ops webhook": {
+      "main": [
+        [
+          {
+            "node": "Route ops action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route ops action": {
+      "main": [
+        [
+          {
+            "node": "Run approval reminders",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond unknown action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run approval reminders": {
+      "main": [
+        [
+          {
+            "node": "Respond done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "lpErrorHandler01",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "timezone": "Europe/London",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "meta": {},
+  "nodeGroups": [],
+  "pinData": {},
+  "sourceWorkflowId": null,
+  "tags": [],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

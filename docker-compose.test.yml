@@ -1,13 +1,27 @@
-# Test overlay: points n8n at the mock server and skips real CRM/Slack/email writes.
+# Test overlay: every external service points at a local fake, so the full write path
+# (Slack posts/updates, HubSpot calls, SMTP) runs for real against the mocks.
 #   docker compose -f docker-compose.yml -f docker-compose.test.yml --profile test up -d
+# docker-compose.dryrun.yml adds DRY_RUN=true on top of this for the dry-run suite.
 services:
   n8n:
     environment:
       TAVILY_BASE_URL: http://mock:8099/tavily
       GEMINI_BASE_URL: http://mock:8099/gemini
-      DRY_RUN: "true"
+      SLACK_BASE_URL: http://mock:8099/slack
+      HUBSPOT_BASE_URL: http://mock:8099/hubspot
+      SLACK_APPROVAL_CHANNEL: C0APPROVALS
+      SLACK_ALERTS_CHANNEL: C0ALERTS
+      DRY_RUN: "false"
       DEMO_MODE: "true"
+      # Only leads posted with "_eval": true are auto-approved (see make eval).
       EVAL_AUTO_APPROVE: "true"
+      DEMO_EMAIL_ALLOWLIST: "@harborlogistics.example,demo-inbox@example.test"
+      # Short windows so the reminder and timeout paths run in about a minute.
+      APPROVAL_TIMEOUT_HOURS: "0.02"
+      APPROVAL_REMINDER_HOURS: "0.004"
+      FOLLOW_UP_DAYS: "3"
     depends_on:
       mock:
         condition: service_healthy
+      mailpit:
+        condition: service_started
