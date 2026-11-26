@@ -48,7 +48,6 @@ def test_lead_is_scored_and_tiered(
 ) -> None:
     result = scored(post_company_lead(post_lead, company))
     assert (result["score"], result["tier"]) == (score, tier)
-    assert result["status"] == "scored"
 
 
 def test_stored_score_equals_the_weighted_total_of_the_stored_ratings(
@@ -125,7 +124,12 @@ def test_scoring_retries_and_a_scoring_outage_does_not_lose_the_lead(
 
     wait_for(pipeline_failed_at_scoring, 60)
     assert gemini_calls(mock, "score") == 3
-    # The lead keeps its research and stays in the ledger; M6 adds the alert + recoverable status.
-    assert sql(
-        f"SELECT status, enrichment_status, score FROM leads WHERE lead_id = '{lead_id}'"
-    ) == [["enriched", "ok", ""]]
+
+    # The lead keeps its research and is left recoverable by the error workflow (M6).
+    def recoverable() -> list[list[str]]:
+        return sql(
+            "SELECT status, enrichment_status, score FROM leads "
+            f"WHERE lead_id = '{lead_id}' AND status = 'error_recoverable'"
+        )
+
+    assert wait_for(recoverable, 30) == [["error_recoverable", "ok", ""]]

@@ -62,10 +62,17 @@ def _gemini_task(body: dict[str, Any]) -> str:
 
 
 def _maybe_fail(service: str) -> None:
+    """Fail this request if a rule is armed. A rule with "match" only fails requests whose
+    body contains that text (e.g. one lead's email), so other tests' background work can't
+    use up the injected failures."""
     rule = _state["fail"].get(service)
-    if rule and rule["times"] > 0:
-        rule["times"] -= 1
-        raise HTTPException(status_code=rule["status"], detail=f"injected {service} failure")
+    if not rule or rule["times"] <= 0:
+        return
+    last_body = _state["calls"][-1]["body"] if _state["calls"] else ""
+    if rule.get("match") and rule["match"] not in last_body:
+        return
+    rule["times"] -= 1
+    raise HTTPException(status_code=rule["status"], detail=f"injected {service} failure")
 
 
 def _record(service: str, path: str, body: Any) -> None:
@@ -87,6 +94,7 @@ async def control_fail(request: Request) -> dict[str, Any]:
     _state["fail"][service] = {
         "times": int(body.get("times", 1)),
         "status": int(body.get("status", 503)),
+        "match": str(body.get("match", "")),
     }
     return {"ok": True, "fail": _state["fail"]}
 

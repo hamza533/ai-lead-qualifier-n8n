@@ -73,7 +73,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Daily summary of the cold leads recorded in the last 24 hours (no email was drafted for them).\nconst rows = $input.all().map((i) => i.json).filter((r) => r.lead_id);\nconst lines = rows.map((r) => {\n  const top = (r.criteria || []).slice().sort((a, b) => b.points - a.points)[0];\n  return `• *${r.name || 'Unknown'}* – ${r.company || 'unknown company'} · ${r.score}/100`\n    + (top ? ` · best fit: ${top.name} (${top.reason})` : '');\n});\nconst text = rows.length\n  ? `:snowflake: *Cold leads in the last 24 h: ${rows.length}*\\nRecorded in HubSpot with score and reasons; no email was drafted.\\n${lines.join('\\n')}`\n  : '';\nreturn [{ json: {\n  count: rows.length,\n  post: rows.length > 0,\n  message: { channel: String($env.SLACK_APPROVAL_CHANNEL || ''), text, unfurl_links: false },\n} }];\n"
+        "jsCode": "// Daily summary of the cold leads recorded in the last 24 hours (no email was drafted for them).\n// Lead-supplied and model-written text is escaped so it can't ping channels or disguise links.\nconst esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst rows = $input.all().map((i) => i.json).filter((r) => r.lead_id);\nconst lines = rows.map((r) => {\n  const top = (r.criteria || []).slice().sort((a, b) => b.points - a.points)[0];\n  return `• *${esc(r.name || 'Unknown')}* – ${esc(r.company || 'unknown company')} · ${r.score}/100`\n    + (top ? ` · best fit: ${esc(top.name)} (${esc(top.reason)})` : '');\n});\nconst text = rows.length\n  ? `:snowflake: *Cold leads in the last 24 h: ${rows.length}*\\nRecorded in HubSpot with score and reasons; no email was drafted.\\n${lines.join('\\n')}`\n  : '';\nreturn [{ json: {\n  count: rows.length,\n  post: rows.length > 0,\n  message: { channel: String($env.SLACK_APPROVAL_CHANNEL || ''), text, unfurl_links: false },\n} }];\n"
       }
     },
     {
@@ -218,7 +218,7 @@
       },
       "parameters": {
         "operation": "executeQuery",
-        "query": "-- Retention: lead rows (with their personal data) and alerts older than\n-- LEAD_RETENTION_DAYS are deleted. HubSpot keeps the long-term record.\nWITH gone AS (\n  DELETE FROM leads WHERE received_at < now() - make_interval(days => $1::int)\n  RETURNING 1\n), old_alerts AS (\n  DELETE FROM alerts WHERE created_at < now() - make_interval(days => $1::int)\n  RETURNING 1\n)\nSELECT (SELECT count(*) FROM gone) AS leads_purged,\n       (SELECT count(*) FROM old_alerts) AS alerts_purged;",
+        "query": "-- Retention: lead rows (with their personal data) and alerts older than\n-- LEAD_RETENTION_DAYS are deleted; duplicate-check claims after a day.\n-- Runs before the digest so a Slack problem never blocks it. HubSpot keeps the record.\nWITH gone AS (\n  DELETE FROM leads WHERE received_at < now() - make_interval(days => $1::int)\n  RETURNING 1\n), old_alerts AS (\n  DELETE FROM alerts WHERE created_at < now() - make_interval(days => $1::int)\n  RETURNING 1\n), old_claims AS (\n  DELETE FROM lead_claims WHERE claimed_at < now() - interval '1 day'\n  RETURNING 1\n)\nSELECT (SELECT count(*) FROM gone) AS leads_purged,\n       (SELECT count(*) FROM old_alerts) AS alerts_purged;",
         "options": {
           "queryReplacement": "={{ [Number($env.LEAD_RETENTION_DAYS || 30)] }}"
         }
@@ -235,7 +235,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const d = $('Build digest').first().json;\nreturn [{ json: {\n  cold_leads: d.count,\n  posted: $('Check digest reply').isExecuted,\n  dry_run: $('Dry run: skip post').isExecuted,\n  text: d.message.text,\n  leads_purged: Number($json.leads_purged),\n  alerts_purged: Number($json.alerts_purged),\n} }];"
+        "jsCode": "const d = $('Build digest').first().json;\nconst p = $('Purge expired data').first().json;\nreturn [{ json: {\n  cold_leads: d.count,\n  posted: $('Check digest reply').isExecuted,\n  dry_run: $('Dry run: skip post').isExecuted,\n  text: d.message.text,\n  leads_purged: Number(p.leads_purged),\n  alerts_purged: Number(p.alerts_purged),\n} }];"
       }
     }
   ],
@@ -244,7 +244,7 @@
       "main": [
         [
           {
-            "node": "Cold leads from the last day",
+            "node": "Purge expired data",
             "type": "main",
             "index": 0
           }
@@ -252,6 +252,17 @@
       ]
     },
     "When run from ops": {
+      "main": [
+        [
+          {
+            "node": "Purge expired data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Purge expired data": {
       "main": [
         [
           {
@@ -295,7 +306,7 @@
         ],
         [
           {
-            "node": "Purge expired data",
+            "node": "Digest result",
             "type": "main",
             "index": 0
           }
@@ -324,7 +335,7 @@
       "main": [
         [
           {
-            "node": "Purge expired data",
+            "node": "Digest result",
             "type": "main",
             "index": 0
           }
@@ -343,17 +354,6 @@
       ]
     },
     "Check digest reply": {
-      "main": [
-        [
-          {
-            "node": "Purge expired data",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Purge expired data": {
       "main": [
         [
           {

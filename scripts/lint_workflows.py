@@ -102,7 +102,13 @@ def lint_workflow(path: Path) -> list[str]:
                 errors.append(f"{where}: parameter '{param_path}' looks like a literal secret")
 
         operation = node.get("parameters", {}).get("operation")
-        if node.get("type") in EXTERNAL_NODE_TYPES and operation not in NO_RETRY_OPERATIONS:
+        # A node may opt out of retries only with a written reason, e.g. sending an email,
+        # where a retry after the server accepted it would send it twice.
+        no_retry = str(node.get("notes", "")).startswith("no-retry:")
+        if no_retry and len(str(node.get("notes", ""))) < 30:
+            errors.append(f"{where}: no-retry needs a reason in the node notes")
+        if (node.get("type") in EXTERNAL_NODE_TYPES and operation not in NO_RETRY_OPERATIONS
+                and not no_retry):  # fmt: skip
             if node.get("disabled"):
                 continue
             if not node.get("retryOnFail"):

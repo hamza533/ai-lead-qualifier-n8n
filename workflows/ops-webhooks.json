@@ -87,6 +87,30 @@
                 ],
                 "combinator": "and"
               }
+            },
+            {
+              "outputKey": "replay",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "b4e1f2a3-6d9e-4f3a-b14c-000000000001",
+                    "leftValue": "={{ $json.body.action }}",
+                    "rightValue": "replay",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
             }
           ]
         },
@@ -150,7 +174,7 @@
       ],
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.stringify({ ok: false, error: 'unknown action', actions: ['run_reminders', 'run_digest'] }) }}",
+        "responseBody": "={{ JSON.stringify({ ok: false, error: 'unknown action', actions: ['run_reminders', 'run_digest', 'replay'] }) }}",
         "options": {
           "responseCode": 400
         }
@@ -198,6 +222,203 @@
         "responseBody": "={{ JSON.stringify({ ok: true, action: 'run_digest', ...$json }) }}",
         "options": {}
       }
+    },
+    {
+      "id": "b4e1f2a3-6d9e-4f3a-b14c-000000000002",
+      "name": "Claim lead for replay",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        480,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "postgres": {
+          "id": "lpCredLeadsDb001",
+          "name": "LeadPilot DB"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Only leads left in error_recoverable can be replayed. A lead that already has its\n-- decision (or is cold) resumes at finish-lead, so nothing is drafted or sent twice;\n-- any other lead restarts the pipeline from the stored normalised lead.\nUPDATE leads SET\n  status = CASE WHEN decision IS NOT NULL OR tier = 'cold' THEN 'finishing' ELSE 'received' END,\n  error = NULL, updated_at = now()\nWHERE lead_id = $1 AND status = 'error_recoverable' AND payload IS NOT NULL\nRETURNING lead_id, payload, (decision IS NOT NULL OR tier = 'cold') AS resume;",
+        "options": {
+          "queryReplacement": "={{ [String($('Ops webhook').first().json.body.lead_id ?? '')] }}"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "b4e1f2a3-6d9e-4f3a-b14c-000000000005",
+      "name": "Recoverable lead found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        700,
+        200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b4e1f2a3-6d9e-4f3a-b14c-000000000004",
+              "leftValue": "={{ Boolean($json.lead_id) }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b4e1f2a3-6d9e-4f3a-b14c-000000000006",
+      "name": "Respond replayed",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        920,
+        -20
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, action: 'replay', lead_id: $json.lead_id, mode: $json.resume ? 'resume' : 'restart' }) }}",
+        "options": {
+          "responseCode": 202
+        }
+      }
+    },
+    {
+      "id": "b4e1f2a3-6d9e-4f3a-b14c-000000000003",
+      "name": "Restart pipeline",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1580,
+        40
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "lpMainIntake0001"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      }
+    },
+    {
+      "id": "b4e1f2a3-6d9e-4f3a-b14c-000000000008",
+      "name": "Respond not recoverable",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        920,
+        300
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, error: 'lead not found or not in error_recoverable' }) }}",
+        "options": {
+          "responseCode": 409
+        }
+      }
+    },
+    {
+      "id": "b4e1f2a3-6d9e-4f3a-b14c-000000000007",
+      "name": "Prepare replay",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        40
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Start the pipeline with the lead exactly as it was accepted.\nconst row = $('Claim lead for replay').first().json;\nconst lead = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;\nreturn [{ json: { check: 'accepted', lead, replay: true } }];"
+      }
+    },
+    {
+      "id": "b0e7f8a9-6d9e-4f3a-b14c-000000000002",
+      "name": "Resume or restart?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1140,
+        -20
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b0e7f8a9-6d9e-4f3a-b14c-000000000001",
+              "leftValue": "={{ $('Claim lead for replay').first().json.resume }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b0e7f8a9-6d9e-4f3a-b14c-000000000003",
+      "name": "Resume finish",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1360,
+        -140
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "lpFinishLead0001"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      }
     }
   ],
   "connections": {
@@ -230,6 +451,13 @@
         ],
         [
           {
+            "node": "Claim lead for replay",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
             "node": "Respond unknown action",
             "type": "main",
             "index": 0
@@ -253,6 +481,75 @@
         [
           {
             "node": "Respond digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim lead for replay": {
+      "main": [
+        [
+          {
+            "node": "Recoverable lead found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recoverable lead found?": {
+      "main": [
+        [
+          {
+            "node": "Respond replayed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond not recoverable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond replayed": {
+      "main": [
+        [
+          {
+            "node": "Resume or restart?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare replay": {
+      "main": [
+        [
+          {
+            "node": "Restart pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resume or restart?": {
+      "main": [
+        [
+          {
+            "node": "Resume finish",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare replay",
             "type": "main",
             "index": 0
           }

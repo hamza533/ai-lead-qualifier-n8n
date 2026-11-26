@@ -171,7 +171,7 @@
       },
       "parameters": {
         "operation": "executeQuery",
-        "query": "-- Insert the lead unless the same email + message arrived in the last 24 hours.\nINSERT INTO leads (lead_id, lead_hash, source, status, name, email, company,\n                   website_domain, personal_email, payload, execution_id)\nSELECT $1, $2, $3, 'received', $4, $5, $6, $7, $8::boolean, $9::jsonb, $10\nWHERE NOT EXISTS (\n  SELECT 1 FROM leads\n  WHERE lead_hash = $2\n    AND status <> 'rejected_spam'\n    AND received_at > now() - interval '24 hours'\n)\nRETURNING lead_id;",
+        "query": "-- Claim the email + message hash for 24 h. The primary key on lead_claims makes two\n-- identical submissions arriving together serialise: only one of them gets a row back.\nWITH claim AS (\n  INSERT INTO lead_claims (lead_hash, lead_id, claimed_at) VALUES ($2, $1, now())\n  ON CONFLICT (lead_hash) DO UPDATE\n    SET lead_id = EXCLUDED.lead_id, claimed_at = EXCLUDED.claimed_at\n    WHERE lead_claims.claimed_at < now() - interval '24 hours'\n  RETURNING lead_id\n)\nINSERT INTO leads (lead_id, lead_hash, source, status, name, email, company,\n                   website_domain, personal_email, payload, execution_id)\nSELECT $1, $2, $3, 'received', $4, $5, $6, $7, $8::boolean, $9::jsonb, $10\nFROM claim\nRETURNING lead_id;",
         "options": {
           "queryReplacement": "={{ [$json.lead.lead_id, $json.lead.lead_hash, $json.lead.source, $json.lead.name, $json.lead.email, $json.lead.company, $json.lead.website_domain, $json.lead.personal_email, JSON.stringify($json.lead), $execution.id] }}"
         }
