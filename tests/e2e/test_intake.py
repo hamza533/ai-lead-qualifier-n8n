@@ -169,8 +169,25 @@ def test_duplicate_older_than_24h_is_processed_again(
     post_lead: PostLead, lead: dict[str, str]
 ) -> None:
     lead_id = post_lead(lead).json()["lead_id"]
-    sql(f"UPDATE leads SET received_at = now() - interval '25 hours' WHERE lead_id = '{lead_id}'")  # noqa: S608
+    sql(f"UPDATE leads SET received_at = now() - interval '25 hours' WHERE lead_id = '{lead_id}'")
+    sql(
+        "UPDATE lead_claims SET claimed_at = now() - interval '25 hours' "
+        f"WHERE lead_id = '{lead_id}'"
+    )
     assert post_lead(lead).status_code == 202
+
+
+def test_simultaneous_identical_submissions_create_one_lead(
+    post_lead: PostLead, lead: dict[str, str]
+) -> None:
+    """Double-click or a sender retrying in parallel: only one lead is accepted."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        codes = sorted(r.status_code for r in pool.map(lambda _: post_lead(lead), range(4)))
+    assert codes == [200, 200, 200, 202]
+    lead_hash = hashlib.sha256(f"{lead['email']}\n{lead['message']}".encode()).hexdigest()
+    assert sql(f"SELECT count(*) FROM leads WHERE lead_hash = '{lead_hash}'") == [["1"]]
 
 
 # --- hosted form -------------------------------------------------------------------------

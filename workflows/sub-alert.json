@@ -1,0 +1,253 @@
+{
+  "id": "lpSubAlert000001",
+  "name": "LeadPilot – Sub: send alert",
+  "description": null,
+  "active": true,
+  "nodes": [
+    {
+      "id": "c5f2a3b4-6d9e-4f3a-b14c-000000000001",
+      "name": "When called with an alert",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "c5f2a3b4-6d9e-4f3a-b14c-000000000002",
+      "name": "Format alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Format one alert for the alerts channel. Emails are masked: alerts never contain a full\n// address. Input: { level: 'error' | 'warning', workflow, node, message, lead_id, email,\n// execution_id, execution_url, note }.\nconst a = $input.first().json;\nconst mask = (email) => {\n  const [user, domain] = String(email || '').split('@');\n  return domain ? `${user.slice(0, 1)}***@${domain}` : '';\n};\nconst masked = mask(a.email);\nconst icon = a.level === 'warning' ? ':warning:' : ':rotating_light:';\nconst title = a.level === 'warning' ? 'LeadPilot warning' : 'LeadPilot failure';\nconst leadLine = !a.lead_id\n  ? 'No lead is attached to this execution.'\n  : a.level === 'warning'\n    ? `Lead \\`${a.lead_id}\\` (${masked}). ${a.note || ''}`.trim()\n    : `Lead \\`${a.lead_id}\\` (${masked}) is now *error_recoverable*. Replay it with the ops webhook: \\`{\"action\": \"replay\", \"lead_id\": \"${a.lead_id}\"}\\``;\nconst text = [\n  `${icon} *${title}* in ${a.workflow || 'unknown workflow'}${a.node ? ` › ${a.node}` : ''}`,\n  `> ${String(a.message || 'Unknown error').replace(/\\n/g, '\\n> ')}`,\n  leadLine,\n  a.execution_url ? `<${a.execution_url}|Open the execution in n8n>` : '',\n].filter(Boolean).join('\\n');\nreturn [{ json: {\n  level: a.level || 'error',\n  workflow: a.workflow || 'unknown',\n  node: a.node || '',\n  message: String(a.message || 'Unknown error').slice(0, 500),\n  lead_id: a.lead_id || null,\n  masked_email: masked || null,\n  execution_id: a.execution_id || null,\n  execution_url: a.execution_url || null,\n  slack: { channel: String($env.SLACK_ALERTS_CHANNEL || ''), text, unfurl_links: false },\n} }];\n"
+      }
+    },
+    {
+      "id": "c5f2a3b4-6d9e-4f3a-b14c-000000000003",
+      "name": "Record alert",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        440,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "postgres": {
+          "id": "lpCredLeadsDb001",
+          "name": "LeadPilot DB"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO alerts (level, workflow, node, message, lead_id, masked_email, execution_id,\n                    execution_url)\nVALUES ($1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, ''))\nRETURNING id;",
+        "options": {
+          "queryReplacement": "={{ [$json.level, $json.workflow, $json.node, $json.message, $json.lead_id ?? '', $json.masked_email ?? '', $json.execution_id ?? '', $json.execution_url ?? ''] }}"
+        }
+      }
+    },
+    {
+      "id": "c5f2a3b4-6d9e-4f3a-b14c-000000000005",
+      "name": "Dry run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c5f2a3b4-6d9e-4f3a-b14c-000000000004",
+              "leftValue": "={{ String($env.DRY_RUN).toLowerCase() }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "true"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c5f2a3b4-6d9e-4f3a-b14c-000000000006",
+      "name": "Post to alerts channel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "slackApi": {
+          "id": "lpCredSlack00001",
+          "name": "Slack Bot"
+        }
+      },
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_BASE_URL }}/chat.postMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Format alert').first().json.slack) }}",
+        "options": {
+          "timeout": 20000
+        },
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi"
+      }
+    },
+    {
+      "id": "c5f2a3b4-6d9e-4f3a-b14c-000000000007",
+      "name": "Check alert reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "if (!$json.ok) throw new Error(`Slack rejected the alert: ${$json.error || 'unknown error'}`);\nreturn [{ json: { id: $('Record alert').first().json.id } }];"
+      }
+    },
+    {
+      "id": "c5f2a3b4-6d9e-4f3a-b14c-000000000008",
+      "name": "Mark alert delivered",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1320,
+        100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "postgres": {
+          "id": "lpCredLeadsDb001",
+          "name": "LeadPilot DB"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE alerts SET delivered = true WHERE id = $1 RETURNING id;",
+        "options": {
+          "queryReplacement": "={{ [$json.id] }}"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "When called with an alert": {
+      "main": [
+        [
+          {
+            "node": "Format alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format alert": {
+      "main": [
+        [
+          {
+            "node": "Record alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record alert": {
+      "main": [
+        [
+          {
+            "node": "Dry run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dry run?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Post to alerts channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to alerts channel": {
+      "main": [
+        [
+          {
+            "node": "Check alert reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check alert reply": {
+      "main": [
+        [
+          {
+            "node": "Mark alert delivered",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "lpErrorHandler01",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "timezone": "Europe/London",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "meta": {},
+  "nodeGroups": [],
+  "pinData": {},
+  "sourceWorkflowId": null,
+  "tags": [],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

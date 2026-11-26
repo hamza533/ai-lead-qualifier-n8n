@@ -78,11 +78,17 @@ credentials: ## Create n8n credentials from .env (fixed IDs, nothing exported)
 hubspot-setup: ## Create the ai_* custom contact properties in HubSpot
 	$(RUN) python -m scripts.hubspot_setup
 
-eval: ## Run the 30-lead evaluation; writes eval/results.md and .json
+eval: ## Run the 30-lead evaluation (real keys, DEMO_MODE + EVAL_AUTO_APPROVE); writes eval/results.md/.json
 	$(RUN) python -m eval.run
+
+eval-mock: ## Smoke-run the evaluation harness on the test stack; writes eval/results-mock.*
+	$(RUN) python -m eval.run --mock --fresh
 
 seed: ## Post the sample leads to the signed webhook
 	$(RUN) python -m scripts.seed
 
-tunnel: ## Public HTTPS URL for forms, webhooks and Slack (needs cloudflared)
-	cloudflared tunnel --url http://localhost:5678
+ops: ## Run an ops action: make ops ACTION=run_digest | run_reminders | replay LEAD=ld_...
+	$(RUN) python -m scripts.ops $(ACTION) $(LEAD)
+
+tunnel: ## Public HTTPS URL for forms, webhooks and Slack (needs cloudflared); see README
+	cloudflared tunnel --url http://localhost:$${N8N_HOST_PORT:-5678}

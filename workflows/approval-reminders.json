@@ -74,7 +74,7 @@
       ],
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "// One threaded reminder under the original approval request.\nconst l = $json;\nreturn { json: { lead_id: l.lead_id, message: {\n  channel: l.slack_channel, thread_ts: l.slack_ts, unfurl_links: false,\n  text: `:alarm_clock: Reminder: still waiting for a decision on ${l.name} `\n    + `(${l.company || 'unknown company'}, ${l.score}/100 ${String(l.tier).toUpperCase()}). `\n    + `Review: ${l.approval_url}`,\n} } };"
+        "jsCode": "// One threaded reminder under the original approval request. Lead-supplied text is\n// escaped so it can't ping channels or disguise links.\nconst esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst l = $json;\nreturn { json: { lead_id: l.lead_id, message: {\n  channel: l.slack_channel, thread_ts: l.slack_ts, unfurl_links: false,\n  text: `:alarm_clock: Reminder: still waiting for a decision on ${esc(l.name)} `\n    + `(${esc(l.company || 'unknown company')}, ${l.score}/100 ${String(l.tier).toUpperCase()}). `\n    + `Review: ${l.approval_url}`,\n} } };"
       }
     },
     {

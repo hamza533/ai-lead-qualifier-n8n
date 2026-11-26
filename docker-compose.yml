@@ -3,11 +3,53 @@
 # end-to-end tests and CI (see docker-compose.test.yml).
 name: leadpilot
 
+# Only what n8n and the workflows need is passed in (not the whole .env): expressions can
+# read the environment ($env), so API keys, tokens and passwords stay out of it. They live
+# in n8n credentials, created from .env on the host by `make credentials`.
 x-n8n-env: &n8n-env
-  env_file: .env
   environment:
+    # n8n itself
+    N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?run make setup first}
+    N8N_HOST: ${N8N_HOST:-localhost}
+    N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+    N8N_WEBHOOK_URL: ${N8N_WEBHOOK_URL:-http://localhost:5678/}
+    GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-Europe/London}
+    N8N_INSTANCE_OWNER_MANAGED_BY_ENV: ${N8N_INSTANCE_OWNER_MANAGED_BY_ENV:-true}
+    N8N_INSTANCE_OWNER_EMAIL: ${N8N_INSTANCE_OWNER_EMAIL:-owner@example.test}
+    N8N_INSTANCE_OWNER_FIRST_NAME: ${N8N_INSTANCE_OWNER_FIRST_NAME:-Lead}
+    N8N_INSTANCE_OWNER_LAST_NAME: ${N8N_INSTANCE_OWNER_LAST_NAME:-Pilot}
+    N8N_INSTANCE_OWNER_PASSWORD_HASH: ${N8N_INSTANCE_OWNER_PASSWORD_HASH}
     DB_TYPE: postgresdb
-    # Workflows read non-secret settings ($env.GEMINI_BASE_URL etc.) in expressions.
+    DB_POSTGRESDB_HOST: ${DB_POSTGRESDB_HOST:-postgres}
+    DB_POSTGRESDB_PORT: ${DB_POSTGRESDB_PORT:-5432}
+    DB_POSTGRESDB_DATABASE: ${DB_POSTGRESDB_DATABASE:-n8n}
+    DB_POSTGRESDB_USER: ${DB_POSTGRESDB_USER:-n8n}
+    DB_POSTGRESDB_PASSWORD: ${DB_POSTGRESDB_PASSWORD:?run make setup first}
+    EXECUTIONS_DATA_PRUNE: ${EXECUTIONS_DATA_PRUNE:-true}
+    EXECUTIONS_DATA_MAX_AGE: ${EXECUTIONS_DATA_MAX_AGE:-336}
+    N8N_RUNNERS_AUTH_TOKEN: ${N8N_RUNNERS_AUTH_TOKEN:?run make setup first}
+    # Workflow settings (read with $env in the workflows; nothing secret except the HMAC
+    # secret, which a Code node needs to verify webhook signatures)
+    GEMINI_BASE_URL: ${GEMINI_BASE_URL:-https://generativelanguage.googleapis.com}
+    LLM_MODEL: ${LLM_MODEL:-gemini-2.5-flash}
+    TAVILY_BASE_URL: ${TAVILY_BASE_URL:-https://api.tavily.com}
+    HUBSPOT_BASE_URL: ${HUBSPOT_BASE_URL:-https://api.hubapi.com}
+    SLACK_BASE_URL: ${SLACK_BASE_URL:-https://slack.com/api}
+    SLACK_APPROVAL_CHANNEL: ${SLACK_APPROVAL_CHANNEL:-}
+    SLACK_ALERTS_CHANNEL: ${SLACK_ALERTS_CHANNEL:-}
+    EMAIL_FROM: ${EMAIL_FROM:-}
+    BOOKING_LINK: ${BOOKING_LINK:-}
+    FOLLOW_UP_DAYS: ${FOLLOW_UP_DAYS:-3}
+    APPROVAL_TIMEOUT_HOURS: ${APPROVAL_TIMEOUT_HOURS:-24}
+    APPROVAL_REMINDER_HOURS: ${APPROVAL_REMINDER_HOURS:-4}
+    WEBHOOK_HMAC_SECRET: ${WEBHOOK_HMAC_SECRET:?run make setup first}
+    DEMO_MODE: ${DEMO_MODE:-true}
+    DEMO_EMAIL_ALLOWLIST: ${DEMO_EMAIL_ALLOWLIST:-}
+    DRY_RUN: ${DRY_RUN:-false}
+    EVAL_AUTO_APPROVE: ${EVAL_AUTO_APPROVE:-false}
+    LEADPILOT_DB_NAME: ${LEADPILOT_DB_NAME:-leadpilot}
+    LEAD_RETENTION_DAYS: ${LEAD_RETENTION_DAYS:-30}
+    # n8n configuration
     N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
     # File nodes may only read the mounted config folder.
     N8N_RESTRICT_FILE_ACCESS_TO: /home/node/.n8n-files

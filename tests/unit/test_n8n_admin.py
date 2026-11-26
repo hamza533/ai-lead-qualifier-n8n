@@ -27,18 +27,24 @@ def test_sub_workflows_are_activated_before_their_callers() -> None:
     assert order.index("zSub") < order.index("aMain")
 
 
-def test_chains_and_error_workflow_come_first() -> None:
+def test_call_chains_are_ordered() -> None:
     workflows = [
         _wf("intake", "validate", "pipeline", error="errors"),
         _wf("pipeline", "enrich", error="errors"),
         _wf("enrich", error="errors"),
         _wf("validate", error="errors"),
-        _wf("errors"),
+        _wf("errors", "alert"),
+        _wf("alert", error="errors"),
     ]
     order = _ids(activation_order(workflows))
-    assert order[0] == "errors"
     assert order.index("enrich") < order.index("pipeline") < order.index("intake")
     assert order.index("validate") < order.index("intake")
+    assert order.index("alert") < order.index("errors")
+
+
+def test_error_workflow_setting_is_not_a_dependency() -> None:
+    """The error handler calls sub-alert, whose error workflow is the error handler."""
+    assert referenced_workflows(_wf("alert", error="errors")) == set()
 
 
 def test_reference_cycle_is_reported() -> None:

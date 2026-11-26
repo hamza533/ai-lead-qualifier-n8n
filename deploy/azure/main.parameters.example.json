@@ -1,0 +1,20 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "prefix": { "value": "leadpilot" },
+    "n8nVersion": { "value": "2.49.6" },
+    "publicHost": { "value": "leads.example.com" },
+    "postgresSku": { "value": "Standard_B1ms" },
+    "postgresTier": { "value": "Burstable" },
+    "redisSku": { "value": "Standard" },
+    "maxWorkers": { "value": 3 },
+    "keyVaultAdminObjectId": { "value": "00000000-0000-0000-0000-000000000000" },
+    "createPlaceholderSecrets": { "value": false },
+    "slackApprovalChannel": { "value": "C0123APPROVALS" },
+    "slackAlertsChannel": { "value": "C0123ALERTS" },
+    "emailFrom": { "value": "Northwind Digital <hello@northwind.example>" },
+    "bookingLink": { "value": "https://northwind.example/book" },
+    "vnetAddressPrefix": { "value": "10.40.0.0/16" }
+  }
+}

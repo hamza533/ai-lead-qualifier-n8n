@@ -113,6 +113,21 @@
             "source": "https://news.example/harbor-cold-chain"
           }
         ]
+      },
+      "judge": {
+        "claims": [
+          {
+            "claim": "Wants a customer portal for shipment tracking by Q2",
+            "supported": true,
+            "evidence": "lead message"
+          },
+          {
+            "claim": "Launched a cold-chain service this year",
+            "supported": true,
+            "evidence": "https://news.example/harbor-cold-chain"
+          }
+        ],
+        "all_grounded": true
       }
     }
   },
@@ -305,6 +320,21 @@
             "source": "https://invented.example/case-study"
           }
         ]
+      },
+      "judge": {
+        "claims": [
+          {
+            "claim": "Runs three clinics",
+            "supported": true,
+            "evidence": "https://coastlineclinics.example"
+          },
+          {
+            "claim": "Helped companies like yours cut no-shows by 30%",
+            "supported": false,
+            "evidence": "not in the message or research"
+          }
+        ],
+        "all_grounded": false
       }
     }
   },

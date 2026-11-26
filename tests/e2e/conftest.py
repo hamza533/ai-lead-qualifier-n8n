@@ -128,10 +128,12 @@ def mock(env: dict[str, str]) -> Iterator[httpx.Client]:
     client.post("/_control/reset")
 
 
-def fail(mock: httpx.Client, service: str, times: int) -> None:
-    """Make the next `times` calls fail; service is tavily_search, tavily_extract, gemini
-    or gemini:<task> (profile, score, draft, judge)."""
-    mock.post("/_control/fail", json={"service": service, "times": times}).raise_for_status()
+def fail(mock: httpx.Client, service: str, times: int, match: str = "") -> None:
+    """Make the next `times` calls fail; service is tavily_search, tavily_extract, gemini,
+    gemini:<task> (profile, score, draft, judge), slack or hubspot. With `match`, only calls
+    whose body contains that text fail (pipelines from other tests can't use them up)."""
+    body = {"service": service, "times": times, "match": match}
+    mock.post("/_control/fail", json=body).raise_for_status()
 
 
 def calls(mock: httpx.Client, service: str) -> int:
@@ -149,9 +151,20 @@ def gemini_request(mock: httpx.Client, task: str) -> str:
                     if c["service"] == "gemini" and c["path"].endswith(f"#{task}")))  # fmt: skip
 
 
+def unique_email(email: str) -> str:
+    """name+tag@domain: same domain (fixtures, allow-list), but no two tests share a contact."""
+    local, domain = email.split("@")
+    return f"{local}+{uuid.uuid4().hex[:8]}@{domain}"
+
+
 def post_company_lead(post_lead: PostLead, key: str, **overrides: Any) -> str:
-    """Post a lead for one fixture company; returns its lead_id."""
+    """Post a lead for one fixture company; returns its lead_id.
+
+    Pipelines from earlier tests keep running in the background (approvals time out,
+    emails and CRM writes follow decisions), so every lead gets its own email address and
+    tests look only at records that belong to their lead."""
     company, website, email = COMPANIES[key]
+    email = unique_email(email)
     payload = {
         "name": "Test Person", "email": email, "company": company, "website": website,
         "role": "Head of Operations", "budget_range": "$20k-$50k",
@@ -263,3 +276,48 @@ def emails_to(mailpit: httpx.Client, address: str) -> list[dict[str, Any]]:
 def hubspot(mock: httpx.Client) -> dict[str, Any]:
     state: dict[str, Any] = mock.get("/_control/hubspot").json()
     return state
+
+
+def lead_email(lead_id: str) -> str:
+    return sql(f"SELECT email FROM leads WHERE lead_id = '{lead_id}'")[0][0]
+
+
+def crm_for(mock: httpx.Client, email: str) -> dict[str, Any]:
+    """The HubSpot mock records that belong to one contact."""
+    state = hubspot(mock)
+    contact = state["contacts"].get(email)
+    if contact is None:
+        return {"contact": None, "companies": {}, "notes": [], "tasks": []}
+    cid = contact["id"]
+
+    def linked(obj: dict[str, Any]) -> bool:
+        return any(a["to"]["id"] == cid for a in obj.get("associations", []))
+
+    company_ids = [co for c, co in state["associations"] if c == cid]
+    return {
+        "contact": contact,
+        "companies": {i: state["companies"][i] for i in company_ids},
+        "associations": [pair for pair in state["associations"] if pair[0] == cid],
+        "notes": [n for n in state["notes"] if linked(n)],
+        "tasks": [t for t in state["tasks"] if linked(t)],
+    }
+
+
+def slack_for(mock: httpx.Client, lead_id: str) -> dict[str, list[dict[str, Any]]]:
+    """Slack calls that belong to one lead: matched by its message ts and approval URL."""
+    row = sql(
+        "SELECT coalesce(slack_ts, '-'), coalesce(approval_url, '-') FROM leads "
+        f"WHERE lead_id = '{lead_id}'"
+    )[0]
+    ts, url = row
+    posts = slack_posts(mock)
+    return {
+        "requests": [
+            p for p in posts if url in p.get("text", "") and not p.get("thread_ts")
+        ],  # fmt: skip
+        "reminders": [p for p in posts if p.get("thread_ts") == ts],
+        "updates": [p for p in slack_posts(mock, "chat.update") if p.get("ts") == ts],
+        "alerts": [
+            p for p in posts if p.get("channel") == "C0ALERTS" and lead_id in p.get("text", "")
+        ],
+    }

@@ -14,7 +14,7 @@ from tests.e2e.conftest import (
     await_approval,
     decision_of,
     post_company_lead,
-    slack_posts,
+    slack_for,
     sql,
     submit_decision,
     wait_for,
@@ -31,7 +31,7 @@ def test_hot_lead_reaches_slack_with_score_reasons_sources_and_draft(
     url = await_approval(lead_id)
     assert time.monotonic() - started < 60  # spec: in Slack within about a minute
 
-    [post] = slack_posts(mock)
+    [post] = slack_for(mock, lead_id)["requests"]
     assert post["channel"] == "C0APPROVALS"
     text = json.dumps(post["blocks"], ensure_ascii=False)
     assert "New lead: Daniel Reyes – Harbor Logistics" in text
@@ -66,7 +66,7 @@ def test_risky_draft_is_flagged_for_the_reviewer(post_lead: PostLead, mock: http
         "cites a page that was not researched: https://invented.example/case-study",
         "booking link was missing and has been added",
     ]
-    text = json.dumps(slack_posts(mock)[0]["blocks"])
+    text = json.dumps(slack_for(mock, lead_id)["requests"][0]["blocks"])
     assert "Check before approving" in text and "30%" in text
 
 
@@ -109,13 +109,15 @@ def test_reminder_is_posted_once_in_the_thread(
     lead_id = post_company_lead(post_lead, "harbor")
     await_approval(lead_id)
     time.sleep(16)
-    assert ops("run_reminders").json() == {"ok": True, "action": "run_reminders", "processed": 1}
-    request, reminder = slack_posts(mock)
-    ts = sql(f"SELECT slack_ts FROM leads WHERE lead_id = '{lead_id}'")[0][0]
-    assert reminder["thread_ts"] == ts
+    # Other tests' leads may be overdue too, so count only this lead's reminders.
+    assert ops("run_reminders").json()["processed"] >= 1
+    slack = slack_for(mock, lead_id)
+    [request] = slack["requests"]
+    [reminder] = slack["reminders"]
     assert reminder["text"].startswith(":alarm_clock: Reminder: still waiting for a decision")
     assert request["text"].split("Review: ")[1] in reminder["text"]  # same form link
-    assert ops("run_reminders").json()["processed"] == 0
+    ops("run_reminders")
+    assert len(slack_for(mock, lead_id)["reminders"]) == 1  # reminded once
 
 
 def test_cold_lead_gets_no_draft_and_no_approval_request(
@@ -130,14 +132,19 @@ def test_cold_lead_gets_no_draft_and_no_approval_request(
 
     time.sleep(3)  # let the pipeline finish after scoring
     assert wait_for(scored)[0] == ["cold", ""]
-    assert slack_posts(mock) == []
+    assert slack_for(mock, lead_id)["requests"] == []
+    assert sql(f"SELECT coalesce(slack_ts, 'none') FROM leads WHERE lead_id = '{lead_id}'") == [
+        ["none"]
+    ]
 
 
 def test_eval_lead_is_auto_approved_without_slack(post_lead: PostLead, mock: httpx.Client) -> None:
     lead_id = post_company_lead(post_lead, "harbor", _eval=True)
     decision = decision_of(lead_id)
     assert (decision["outcome"], decision["approver"]) == ("approved", "eval auto-approve")
-    assert slack_posts(mock) == []
+    assert sql(f"SELECT coalesce(slack_ts, 'none') FROM leads WHERE lead_id = '{lead_id}'") == [
+        ["none"]
+    ]
 
 
 def test_ops_webhook_needs_the_token_and_a_known_action(

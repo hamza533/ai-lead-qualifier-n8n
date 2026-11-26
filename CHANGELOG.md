@@ -19,3 +19,8 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 - Postgres 17.6 (n8n 2.49 no longer fully supports 16); Code nodes run in an external `task-runners` container; `WEBHOOK_URL` renamed to `N8N_WEBHOOK_URL`.
 - `make import` activates workflows through the public API (sub-workflows first) and creates an API key when needed.
+- Reply draft and approval (M4): `sub-draft` with code checks, Slack approval request + n8n form (approve / edit / reject / timeout), threaded reminders, ops webhook.
+- Send + CRM (M5): SMTP send with demo allow-list redirect, `sub-crm-update` (HubSpot v3), Slack outcome update, cold-lead digest + retention purge, `make hubspot-setup`.
+- Errors (M6): active `error-handler` (alerts with masked email, `error_recoverable`), pipeline start marker, `replay` via the ops webhook, `make ops`.
+- Evaluation (M7): 30-lead test set + duplicate + spam, `make eval` / `make eval-mock` with an LLM grounding judge, latency, usage and cost.
+- Production profile (M8): `deploy/azure/` Bicep (n8n queue mode), deploy workflow (disabled by default), CodeQL, Dependabot, Trivy, full README.

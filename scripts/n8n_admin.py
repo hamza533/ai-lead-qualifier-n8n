@@ -45,6 +45,8 @@ WORKFLOW_FILES: dict[str, str] = {
     "lpSubDraft000001": "sub-draft.json",
     "lpReminders00001": "approval-reminders.json",
     "lpOpsWebhook0001": "ops-webhooks.json",
+    "lpSubAlert000001": "sub-alert.json",
+    "lpFinishLead0001": "finish-lead.json",
 }
 
 # Fields n8n adds on export that change on every save and would only add noise to diffs.
@@ -229,7 +231,11 @@ def import_workflows() -> None:
 
 
 def referenced_workflows(workflow: dict[str, Any]) -> set[str]:
-    """IDs of the sub-workflows (and error workflow) this workflow depends on."""
+    """IDs of the sub-workflows this workflow calls (Execute Workflow nodes).
+
+    The error-workflow setting is not a dependency: n8n publishes a workflow whose error
+    workflow isn't active yet, and the error handler itself calls sub-alert, whose error
+    workflow is the error handler (that would be a cycle)."""
     refs = set()
     for node in workflow.get("nodes", []):
         if node.get("type") == "n8n-nodes-base.executeWorkflow":
@@ -237,9 +243,6 @@ def referenced_workflows(workflow: dict[str, Any]) -> set[str]:
             value = target.get("value") if isinstance(target, dict) else target
             if isinstance(value, str) and value:
                 refs.add(value)
-    error_workflow = workflow.get("settings", {}).get("errorWorkflow")
-    if error_workflow:
-        refs.add(error_workflow)
     return refs - {workflow["id"]}
 
 

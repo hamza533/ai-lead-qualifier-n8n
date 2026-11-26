@@ -1,0 +1,186 @@
+{
+  "id": "lpErrorHandler01",
+  "name": "LeadPilot – Error handler",
+  "description": null,
+  "active": true,
+  "nodes": [
+    {
+      "id": "f2c9d0e1-6d9e-4f3a-b14c-000000000001",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "f2c9d0e1-6d9e-4f3a-b14c-000000000002",
+      "name": "Mark lead recoverable",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "postgres": {
+          "id": "lpCredLeadsDb001",
+          "name": "LeadPilot DB"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- The lead whose execution failed keeps all its data and can be replayed. Only leads\n-- that haven't finished are touched (completed_at is set by the very last step).\nUPDATE leads SET\n  status = 'error_recoverable',\n  error = $2,\n  updated_at = now()\nWHERE pipeline_execution_id = $1\n  AND completed_at IS NULL\nRETURNING lead_id, email;",
+        "options": {
+          "queryReplacement": "={{ [String($json.execution?.id ?? ''), String($json.execution?.error?.message ?? $json.trigger?.error?.message ?? 'Unknown error').slice(0, 500)] }}"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "d6a3b4c5-6d9e-4f3a-b14c-000000000001",
+      "name": "Describe failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Describe an n8n error event for the alert. Sub-workflow failures are skipped here: their\n// caller (the pipeline) fails too and is reported with the lead attached, so one failure\n// gives one alert.\nconst event = $('Error Trigger').first().json;\nconst lead = $input.first().json;\nconst workflow = event.workflow || {};\nconst execution = event.execution || {};\nconst error = execution.error || event.trigger?.error || {};\nreturn [{ json: {\n  skip: String(workflow.id || '').startsWith('lpSub'),\n  level: 'error',\n  workflow: workflow.name || String(workflow.id || 'unknown workflow'),\n  node: execution.lastNodeExecuted || error.node?.name || '',\n  message: String(error.message || 'Unknown error').slice(0, 500),\n  lead_id: lead.lead_id || null,\n  email: lead.email || null,\n  execution_id: execution.id ? String(execution.id) : null,\n  execution_url: execution.url || null,\n} }];\n"
+      }
+    },
+    {
+      "id": "d6a3b4c5-6d9e-4f3a-b14c-000000000003",
+      "name": "Report it?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d6a3b4c5-6d9e-4f3a-b14c-000000000002",
+              "leftValue": "={{ $json.skip }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d6a3b4c5-6d9e-4f3a-b14c-000000000004",
+      "name": "Send alert",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        880,
+        -60
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "lpSubAlert000001"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Mark lead recoverable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark lead recoverable": {
+      "main": [
+        [
+          {
+            "node": "Describe failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Describe failure": {
+      "main": [
+        [
+          {
+            "node": "Report it?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report it?": {
+      "main": [
+        [
+          {
+            "node": "Send alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "timezone": "Europe/London",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "meta": {},
+  "nodeGroups": [],
+  "pinData": {},
+  "sourceWorkflowId": null,
+  "tags": [],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

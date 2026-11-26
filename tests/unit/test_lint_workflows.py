@@ -129,3 +129,15 @@ def test_code_node_syntax_error_is_reported(tmp_path: Path) -> None:
 def test_valid_code_node_with_await_and_return_passes(tmp_path: Path) -> None:
     js = "const x = await Promise.resolve(1);\nreturn [{ json: { x } }];"
     assert check_code_syntax([_write(tmp_path, _workflow([_code_node(js)]))]) == []
+
+
+def test_documented_no_retry_is_allowed(tmp_path: Path) -> None:
+    reason = "no-retry: a retry after the server accepted it would send twice"
+    node = _http_node(retryOnFail=False, notes=reason)
+    assert lint_workflow(_write(tmp_path, _workflow([node]))) == []
+
+
+def test_no_retry_without_a_reason_is_reported(tmp_path: Path) -> None:
+    node = _http_node(retryOnFail=False, notes="no-retry:")
+    errors = lint_workflow(_write(tmp_path, _workflow([node])))
+    assert any("needs a reason" in e for e in errors)

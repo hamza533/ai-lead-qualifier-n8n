@@ -46,7 +46,7 @@ def test_approved_lead_writes_nothing_and_records_every_skipped_call(
         "slack.chat.update",
     ]
     email = next(a for a in row["dry_run_actions"] if a["type"] == "smtp.send")["body"]
-    assert email["to"] == "daniel.reyes@harborlogistics.example"
+    assert email["to"] == row["email"]
     _no_external_writes(mock, mailpit)
 
 
