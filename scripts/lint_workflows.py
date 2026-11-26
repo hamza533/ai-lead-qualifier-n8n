@@ -26,6 +26,7 @@ EXTERNAL_NODE_TYPES = {
     "n8n-nodes-base.slack",
     "n8n-nodes-base.emailSend",
     "n8n-nodes-base.gmail",
+    "n8n-nodes-base.postgres",
 }
 # Send-and-wait nodes block for hours; retrying them would post duplicate approval requests.
 NO_RETRY_OPERATIONS = {"sendAndWait"}

@@ -24,7 +24,13 @@ def main() -> None:
     env = read_env()
     updates: dict[str, str] = {}
 
-    for key in ("N8N_ENCRYPTION_KEY", "WEBHOOK_HMAC_SECRET", "DB_POSTGRESDB_PASSWORD"):
+    generated = (
+        "N8N_ENCRYPTION_KEY",
+        "WEBHOOK_HMAC_SECRET",
+        "DB_POSTGRESDB_PASSWORD",
+        "N8N_RUNNERS_AUTH_TOKEN",
+    )
+    for key in generated:
         if env.get(key) == PLACEHOLDER:
             updates[key] = secrets.token_hex(32 if key != "DB_POSTGRESDB_PASSWORD" else 16)
 

@@ -1,33 +1,42 @@
-"""Admin tasks for the local n8n instance: wait, import, export, credentials.
+"""Admin tasks for the local n8n instance.
 
-Uses the n8n CLI inside the running `n8n` compose service, so it needs no API
-key and works the same on a laptop and in CI.
+Uses the n8n CLI inside the running `n8n` compose service (and psql inside the
+`postgres` service), so it works the same on a laptop and in CI.
 
-    uv run python -m scripts.n8n_admin wait
-    uv run python -m scripts.n8n_admin import
-    uv run python -m scripts.n8n_admin export
-    uv run python -m scripts.n8n_admin credentials
+    uv run python -m scripts.n8n_admin wait         # wait for n8n readiness
+    uv run python -m scripts.n8n_admin migrate      # create/upgrade the leads database
+    uv run python -m scripts.n8n_admin credentials  # create n8n credentials from .env
+    uv run python -m scripts.n8n_admin import       # import + activate /workflows
+    uv run python -m scripts.n8n_admin export       # export workflows into /workflows
+    uv run python -m scripts.n8n_admin api-key      # ensure N8N_API_KEY in .env
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
 import time
+from pathlib import Path
 from typing import Any
 
 import httpx
 
-from scripts.envfile import ROOT, read_env
+from scripts.envfile import ROOT, read_env, set_values
 
 WORKFLOWS_DIR = ROOT / "workflows"
 IO_DIR = ROOT / ".tmp" / "n8n-io"
+MIGRATIONS_DIR = ROOT / "db" / "migrations"
+SAFE_NAME = re.compile(r"[a-z0-9_]{1,63}")
 
 # Fixed workflow IDs keep Execute Workflow references stable across export/import.
 WORKFLOW_FILES: dict[str, str] = {
+    "lpIntakeWebhook1": "intake-webhook.json",
+    "lpIntakeForm0001": "intake-form.json",
+    "lpSubValidate001": "sub-validate.json",
     "lpMainIntake0001": "main-lead-intake.json",
     "lpSubEnrich00001": "sub-enrich.json",
     "lpSubScore000001": "sub-score.json",
@@ -87,7 +96,21 @@ CREDENTIALS: list[dict[str, Any]] = [
             "secure": True,
         },
     },
+    {
+        "id": "lpCredLeadsDb001",
+        "name": "LeadPilot DB",
+        "type": "postgres",
+        "data": {
+            "host": "${DB_POSTGRESDB_HOST}",
+            "port": "${DB_POSTGRESDB_PORT}",
+            "database": "${LEADPILOT_DB_NAME}",
+            "user": "${DB_POSTGRESDB_USER}",
+            "password": "${DB_POSTGRESDB_PASSWORD}",
+            "ssl": "disable",
+        },
+    },
 ]
+INTEGER_FIELDS = {"port"}
 
 
 def compose(*args: str, stdin: str | None = None, check: bool = True) -> str:
@@ -178,10 +201,28 @@ def import_workflows() -> None:
     if not files:
         print("no workflows to import")
         return
-    n8n_cli("n8n", "import:workflow", "--separate", "--input=/workflows", "--activeState=fromJson")
-    print(f"imported {len(files)} workflow(s); restarting n8n to register triggers")
+    # Single-instance n8n can't activate on CLI import, so activate through the public API.
+    n8n_cli("n8n", "import:workflow", "--separate", "--input=/workflows")
+    print(f"imported {len(files)} workflow(s)")
     compose("restart", "n8n")
     wait()
+    key = api_key()
+    url = read_env().get("N8N_URL", "http://localhost:5678")
+
+    # n8n only publishes a workflow once the sub-workflows it calls are published,
+    # so activate the error handler and sub-workflows first, the trigger workflows last.
+    def order(path: Path) -> int:
+        stem = path.stem
+        return 0 if stem == "error-handler" else 1 if stem.startswith(("sub-", "main-")) else 2
+
+    with httpx.Client(base_url=url, headers={"X-N8N-API-KEY": key}, timeout=30) as client:
+        for path in sorted(files, key=order):
+            workflow = json.loads(path.read_text(encoding="utf-8"))
+            if workflow.get("active"):
+                res = client.post(f"/api/v1/workflows/{workflow['id']}/activate")
+                if res.status_code >= 400:
+                    raise SystemExit(f"activating {path.name} failed: {res.text[:500]}")
+                print(f"activated {workflow['name']}")
 
 
 def _fill(value: Any, env: dict[str, str]) -> Any:
@@ -200,8 +241,8 @@ def credentials() -> None:
         data = {k: _fill(v, env) for k, v in cred["data"].items()}
         if any(isinstance(v, str) and "CHANGE_ME" in v for v in data.values()):
             placeholders.append(cred["name"])
-        if cred["type"] == "smtp":
-            data["port"] = int(data["port"] or 465)
+        for field in INTEGER_FIELDS & data.keys():
+            data[field] = int(data[field])
         payload.append({**cred, "data": data})
     script = (
         "umask 077; cat > /tmp/lp-creds.json && "
@@ -214,13 +255,85 @@ def credentials() -> None:
         print("still placeholders (fill .env and re-run): " + ", ".join(placeholders))
 
 
+def psql(database: str, sql: str) -> str:
+    env = read_env()
+    user = env.get("DB_POSTGRESDB_USER", "n8n")
+    return compose(
+        "exec", "-T", "postgres",
+        "psql", "-v", "ON_ERROR_STOP=1", "-qAt", "-U", user, "-d", database,
+        stdin=sql,
+    )  # fmt: skip
+
+
+def migrate() -> None:
+    """Create the leads database if needed and apply new files from db/migrations."""
+    env = read_env()
+    db = env.get("LEADPILOT_DB_NAME", "leadpilot")
+    # Names are interpolated into SQL, so only plain identifiers are accepted.
+    if not SAFE_NAME.fullmatch(db):
+        raise SystemExit(f"LEADPILOT_DB_NAME must match {SAFE_NAME.pattern}, got {db!r}")
+    bad = [p.name for p in MIGRATIONS_DIR.glob("*.sql") if not SAFE_NAME.fullmatch(p.stem)]
+    if bad:
+        raise SystemExit(f"migration file names must match {SAFE_NAME.pattern}: {bad}")
+    exists = psql("postgres", f"SELECT 1 FROM pg_database WHERE datname = '{db}';").strip()  # noqa: S608
+    if not exists:
+        psql("postgres", f'CREATE DATABASE "{db}";')
+        print(f"created database {db}")
+    psql(
+        db,
+        "CREATE TABLE IF NOT EXISTS schema_migrations "
+        "(version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now());",
+    )
+    applied = set(psql(db, "SELECT version FROM schema_migrations;").split())
+    pending = [p for p in sorted(MIGRATIONS_DIR.glob("*.sql")) if p.stem not in applied]
+    for path in pending:
+        sql = path.read_text(encoding="utf-8")
+        record = f"INSERT INTO schema_migrations (version) VALUES ('{path.stem}');"  # noqa: S608
+        psql(db, f"BEGIN;\n{sql}\n{record}\nCOMMIT;\n")
+        print(f"applied migration {path.name}")
+    print(f"database {db} is up to date ({len(applied) + len(pending)} migration(s))")
+
+
+def api_key() -> str:
+    """Return a public-API key, creating one from the owner login if .env has none."""
+    env = read_env()
+    url = env.get("N8N_URL", "http://localhost:5678")
+    if env.get("N8N_API_KEY"):
+        probe = httpx.get(
+            f"{url}/api/v1/workflows",
+            params={"limit": 1},
+            headers={"X-N8N-API-KEY": env["N8N_API_KEY"]},
+            timeout=10,
+        )
+        if probe.status_code != 401:
+            return env["N8N_API_KEY"]
+        print("N8N_API_KEY in .env is not valid for this instance; creating a new one")
+    with httpx.Client(base_url=url, timeout=15) as client:
+        login = {
+            "emailOrLdapLoginId": env["N8N_INSTANCE_OWNER_EMAIL"],
+            "password": env["N8N_OWNER_PASSWORD"],
+        }
+        client.post("/rest/login", json=login).raise_for_status()
+        scopes = client.get("/rest/api-keys/scopes").raise_for_status().json()["data"]
+        body = {"label": "leadpilot-harness", "expiresAt": None, "scopes": scopes}
+        key = client.post("/rest/api-keys", json=body).raise_for_status().json()["data"]
+    set_values({"N8N_API_KEY": key["rawApiKey"]})
+    print("created n8n API key 'leadpilot-harness' and saved it to .env")
+    return str(key["rawApiKey"])
+
+
 def main() -> None:
+    commands = {
+        "wait": wait,
+        "migrate": migrate,
+        "import": import_workflows,
+        "export": export,
+        "credentials": credentials,
+        "api-key": api_key,
+    }
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["wait", "import", "export", "credentials"])
-    args = parser.parse_args()
-    {"wait": wait, "import": import_workflows, "export": export, "credentials": credentials}[
-        args.command
-    ]()
+    parser.add_argument("command", choices=list(commands))
+    commands[parser.parse_args().command]()
 
 
 if __name__ == "__main__":

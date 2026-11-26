@@ -1,0 +1,86 @@
+{
+  "$comment": "Ideal-customer profile for Northwind Digital (web development agency). Edit freely: weights need not sum to 100, the score is normalised. Ratings are 0-3.",
+  "business": {
+    "name": "Northwind Digital",
+    "offer": "Custom web applications, customer portals and integrations for B2B companies",
+    "target_budget": "$20k-$150k projects"
+  },
+  "criteria": [
+    {
+      "key": "industry_fit",
+      "name": "Industry fit",
+      "weight": 25,
+      "description": "How well the company's industry matches the industries we serve (logistics, manufacturing, professional services, B2B SaaS, healthcare operations).",
+      "rating_guide": {
+        "0": "Consumer, individual or an industry we do not serve",
+        "1": "Adjacent industry, unclear fit",
+        "2": "Served industry but an unusual segment",
+        "3": "Core target industry"
+      }
+    },
+    {
+      "key": "company_size",
+      "name": "Company size",
+      "weight": 20,
+      "description": "Approximate employee count. Our sweet spot is 50-1,000 employees.",
+      "rating_guide": {
+        "0": "Solo or fewer than 5 people, or unknown with no evidence",
+        "1": "5-49 employees",
+        "2": "50-199 employees or 1,000-5,000 employees",
+        "3": "200-999 employees"
+      }
+    },
+    {
+      "key": "role_seniority",
+      "name": "Role seniority",
+      "weight": 20,
+      "description": "Can the contact decide on or sponsor a project?",
+      "rating_guide": {
+        "0": "Student, job seeker or vendor",
+        "1": "Individual contributor",
+        "2": "Manager or team lead",
+        "3": "Head of, director, VP or C-level"
+      }
+    },
+    {
+      "key": "budget",
+      "name": "Budget",
+      "weight": 20,
+      "description": "Stated budget compared with our target range ($20k-$150k).",
+      "rating_guide": {
+        "0": "Below $5k or explicitly no budget",
+        "1": "$5k-$20k, or no budget given",
+        "2": "Over $150k, or a vague budget that is probably in range",
+        "3": "Clearly within $20k-$150k"
+      }
+    },
+    {
+      "key": "clear_need",
+      "name": "Clear need",
+      "weight": 15,
+      "description": "Does the message describe a concrete project we can deliver, with a goal or timeline?",
+      "rating_guide": {
+        "0": "No need expressed, or something we do not offer",
+        "1": "Vague interest",
+        "2": "A concrete need but no goal or timeline",
+        "3": "A concrete project with a goal or timeline"
+      }
+    }
+  ],
+  "tiers": {
+    "hot": 70,
+    "warm": 40
+  },
+  "free_mail_domains": [
+    "gmail.com", "googlemail.com", "yahoo.com", "yahoo.co.uk", "ymail.com", "hotmail.com",
+    "hotmail.co.uk", "outlook.com", "live.com", "msn.com", "icloud.com", "me.com", "mac.com",
+    "aol.com", "proton.me", "protonmail.com", "gmx.com", "gmx.de", "mail.com", "zoho.com",
+    "yandex.com", "web.de", "fastmail.com", "hey.com", "tutanota.com"
+  ],
+  "spam": {
+    "honeypot_field": "website_url_confirm",
+    "max_links_in_message": 3,
+    "min_message_length": 10,
+    "blocked_phrases": ["crypto investment", "seo services", "guest post", "backlinks", "casino", "viagra"]
+  }
+}

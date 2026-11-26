@@ -1,0 +1,64 @@
+{
+  "id": "lpMainIntake0001",
+  "name": "LeadPilot – Main lead pipeline",
+  "description": null,
+  "active": true,
+  "nodes": [
+    {
+      "id": "7a2e0b63-2d66-4c2f-8e2b-1d2f3b000050",
+      "name": "Lead accepted",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "7a2e0b63-2d66-4c2f-8e2b-1d2f3b000051",
+      "name": "Next: enrichment (M2)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Lead accepted": {
+      "main": [
+        [
+          {
+            "node": "Next: enrichment (M2)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "lpErrorHandler01",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "timezone": "Europe/London",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "meta": {},
+  "nodeGroups": [],
+  "pinData": {},
+  "sourceWorkflowId": null,
+  "tags": [],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

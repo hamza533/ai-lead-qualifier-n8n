@@ -6,13 +6,26 @@ LeadPilot is a set of n8n workflows. n8n (Community Edition, self-hosted, Postgr
 
 ```mermaid
 flowchart LR
-  F[Form Trigger<br/>n8n hosted form] --> N
-  W[Webhook<br/>HMAC-SHA256 check] -->|valid| N
-  W -->|invalid| R401[401 response]
-  N[Validate + normalise<br/>email, domain, free-mail, spam] -->|spam| SP[status: rejected_spam]
-  N --> D{Idempotency<br/>lead_hash seen &lt; 24 h?}
-  D -->|yes| DUP[status: duplicate_ignored]
-  D -->|no| E[Sub: Enrich<br/>Tavily search + extract → Gemini profile]
+  subgraph intake-form
+    F[Form Trigger<br/>n8n hosted form]
+  end
+  subgraph intake-webhook
+    W[Webhook<br/>HMAC-SHA256 check] -->|invalid| R401[401 response]
+    RS[Respond 202 / 200 / 422]
+  end
+  subgraph sub-validate
+    N[Validate + normalise<br/>email, domain, free-mail, spam] -->|spam| SP[status: rejected_spam]
+    N --> D{Idempotency<br/>lead_hash seen &lt; 24 h?}
+    D -->|yes| DUP[duplicate_ignored]
+    D -->|no| CL[status: received]
+  end
+  F --> N
+  W -->|valid| N
+  N -.->|result| RS
+  CL -->|accepted, started async| E
+  subgraph main-lead-intake
+    E[Sub: Enrich<br/>Tavily search + extract → Gemini profile]
+  end
   E --> S[Sub: Score<br/>Gemini ratings → Code node total]
   S --> T{Tier}
   T -->|hot / warm| RD[Draft reply<br/>Gemini, grounded]
@@ -31,7 +44,10 @@ flowchart LR
 
 | File | Trigger | Purpose |
 |---|---|---|
-| `main-lead-intake.json` | Form Trigger + Webhook | Intake, validation, idempotency, orchestration, draft, approval, send. |
+| `intake-webhook.json` | Webhook `POST /webhook/lead` | Checks the HMAC signature (401 if invalid), calls `sub-validate`, answers the sender (202 accepted, 200 duplicate/spam, 422 invalid) and starts `main-lead-intake` without waiting. |
+| `intake-form.json` | Form Trigger `/form/lead-form` | Hosted lead form (bots ignored, hidden honeypot field), calls `sub-validate`, starts `main-lead-intake` for accepted leads. |
+| `sub-validate.json` | Execute Workflow Trigger | Normalises and validates a submission, runs the spam and free-mail checks from `config/icp.json`, and claims the lead in the `leads` table unless the same email + message arrived in the last 24 h. Shared by both intakes so the rules exist once. |
+| `main-lead-intake.json` | Execute Workflow Trigger | The lead pipeline: enrichment, scoring, draft, Slack approval, send, CRM (built in M2–M5). |
 | `sub-enrich.json` | Execute Workflow Trigger | Web research and structured company profile. |
 | `sub-score.json` | Execute Workflow Trigger | Per-criterion ratings from Gemini, deterministic total and tier in a Code node. |
 | `sub-crm-update.json` | Execute Workflow Trigger | HubSpot contact/company upsert, custom properties, note, follow-up task. The only HubSpot-aware workflow, so swapping CRM is contained here. |
@@ -40,11 +56,37 @@ flowchart LR
 
 Every workflow except `error-handler` sets `settings.errorWorkflow` to the error handler. Workflow IDs are fixed (set in the exported JSON) so `Execute Workflow` references survive export/import.
 
+**Why two intake workflows:** n8n refuses to start a workflow that contains a Form Trigger and a "Respond to Webhook" node, and the webhook needs Respond nodes to return 401/422/202. Both intakes call the same `sub-validate`, so the validation rules are not duplicated.
+
+### 2.1 Webhook contract (`POST /webhook/lead`)
+```
+Content-Type: application/json
+X-Signature-256: sha256=<hex HMAC-SHA256(raw body, WEBHOOK_HMAC_SECRET)>
+
+{"name": "...", "email": "...", "company": "...", "website": "...", "role": "...",
+ "budget_range": "...", "message": "...", "website_url_confirm": ""}
+```
+| Response | When |
+|---|---|
+| `401 {"error": "invalid signature"}` | Missing or wrong signature, or a body that differs from the signed one. |
+| `422 {"status": "invalid", "errors": [...]}` | Missing name or message, invalid email. |
+| `200 {"status": "rejected_spam"}` | Honeypot filled, more than `max_links_in_message` links, or a blocked phrase. Stored without personal data. |
+| `200 {"status": "duplicate_ignored"}` | Same email + message within 24 h. |
+| `202 {"status": "accepted", "lead_id": "ld_…"}` | Stored with status `received`; the pipeline starts in the background. |
+
+### 2.2 Leads table (`leadpilot` database, `db/migrations/`)
+One row per accepted or spam submission: `lead_id`, `lead_hash`, `source`, `status`, timestamps, contact fields, `payload` (the normalised lead, for replaying recoverable leads), and later `enrichment_status`, `score`, `tier`, `error`, `execution_id`. Spam rows keep no name, email or payload. Rows are purged after `LEAD_RETENTION_DAYS` (default 30) by the daily workflow (M5); HubSpot keeps the long-term record.
+
 ## 3. Sub-workflow contracts
 
 All sub-workflows take one item and return one item. Fields not listed are ignored.
 
-### 3.1 Normalised lead (produced by main, input to every sub-workflow)
+### 3.0 `sub-validate`
+Input: `{ "source": "form | webhook | eval", "fields": { <raw submission> } }`
+
+Output: `{ "check": "accepted | duplicate | spam | invalid", "errors": [], "spam_reasons": [], "lead": <normalised lead>, "response": { "code": 202, "body": {...} } }`
+
+### 3.1 Normalised lead (produced by `sub-validate`, input to the pipeline and every sub-workflow)
 ```json
 {
   "lead_id": "ld_7f3a9c2e1b",

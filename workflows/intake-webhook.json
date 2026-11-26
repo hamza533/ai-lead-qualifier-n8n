@@ -1,0 +1,293 @@
+{
+  "id": "lpIntakeWebhook1",
+  "name": "LeadPilot – Intake: signed webhook",
+  "description": null,
+  "active": true,
+  "nodes": [
+    {
+      "id": "6f1d0a52-1c55-4b1e-9d1a-0c1f2a000003",
+      "name": "Lead webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "6f1d0a52-1c55-4b1e-9d1a-0c1f2a0f0003",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      }
+    },
+    {
+      "id": "6f1d0a52-1c55-4b1e-9d1a-0c1f2a000004",
+      "name": "Verify HMAC signature",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Webhook senders sign the raw request body:\n//   X-Signature-256: sha256=<hex HMAC-SHA256(body, WEBHOOK_HMAC_SECRET)>\nconst crypto = require('crypto');\nconst item = $input.first();\nconst secret = $env.WEBHOOK_HMAC_SECRET || '';\nconst header = String((item.json.headers || {})['x-signature-256'] || '');\nconst given = header.startsWith('sha256=') ? header.slice(7) : '';\n\nlet raw = Buffer.alloc(0);\nif (item.binary && item.binary.data) {\n  raw = await this.helpers.getBinaryDataBuffer(0, 'data');\n}\nconst expected = crypto.createHmac('sha256', secret).update(raw).digest('hex');\nconst valid = secret.length >= 16 && /^[0-9a-f]{64}$/i.test(given) &&\n  crypto.timingSafeEqual(Buffer.from(given.toLowerCase(), 'hex'), Buffer.from(expected, 'hex'));\n\nlet fields = {};\nif (valid) {\n  try { fields = JSON.parse(raw.toString('utf8')); } catch (e) { fields = {}; }\n}\nreturn [{ json: { source: fields._eval === true ? 'eval' : 'webhook', signature_valid: valid, fields } }];"
+      }
+    },
+    {
+      "id": "6f1d0a52-1c55-4b1e-9d1a-0c1f2a000005",
+      "name": "Signature valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b1",
+              "leftValue": "={{ $json.signature_valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "6f1d0a52-1c55-4b1e-9d1a-0c1f2a000006",
+      "name": "Respond 401",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        660,
+        160
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"error\": \"invalid signature\"}",
+        "options": {
+          "responseCode": 401
+        }
+      }
+    },
+    {
+      "id": "7a2e0b63-2d66-4c2f-8e2b-1d2f3b000030",
+      "name": "Validate lead",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "lpSubValidate001"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "6f1d0a52-1c55-4b1e-9d1a-0c1f2a00000e",
+      "name": "Respond to sender",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.response.body) }}",
+        "options": {
+          "responseCode": "={{ $json.response.code }}"
+        }
+      }
+    },
+    {
+      "id": "6f1d0a52-1c55-4b1e-9d1a-0c1f2a00000f",
+      "name": "Accepted?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1180,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a1",
+              "leftValue": "={{ $json.check }}",
+              "rightValue": "accepted",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "7a2e0b63-2d66-4c2f-8e2b-1d2f3b000031",
+      "name": "Start lead pipeline",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1400,
+        -20
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "lpMainIntake0001"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Lead webhook": {
+      "main": [
+        [
+          {
+            "node": "Verify HMAC signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify HMAC signature": {
+      "main": [
+        [
+          {
+            "node": "Signature valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Signature valid?": {
+      "main": [
+        [
+          {
+            "node": "Validate lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 401",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate lead": {
+      "main": [
+        [
+          {
+            "node": "Respond to sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to sender": {
+      "main": [
+        [
+          {
+            "node": "Accepted?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Accepted?": {
+      "main": [
+        [
+          {
+            "node": "Start lead pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "lpErrorHandler01",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "timezone": "Europe/London",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "meta": {},
+  "nodeGroups": [],
+  "pinData": {},
+  "sourceWorkflowId": null,
+  "tags": [],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}
