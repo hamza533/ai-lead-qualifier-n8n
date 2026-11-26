@@ -10,20 +10,25 @@ permissions:
 
 jobs:
   lint-test:
-    name: Lint + unit tests + workflow lint
+    name: Lint, types, workflow lint, unit tests
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
       - run: uv sync --locked
+      # ruff, ruff format --check, mypy --strict, workflow JSON lint (incl. Code node syntax), pytest
       - run: make check
 
   e2e:
-    name: n8n end-to-end against mocks (DRY_RUN)
+    name: n8n end-to-end against mocks (full write path, then DRY_RUN)
     runs-on: ubuntu-24.04
     needs: lint-test
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -32,10 +37,44 @@ jobs:
       - run: uv sync --locked
       - name: Create .env with generated secrets and placeholder keys
         run: uv run python -m scripts.init_env
-      - name: Boot n8n + Postgres + mock, import credentials and workflows, run e2e
+      - name: Boot n8n + Postgres + runners + mocks + mailpit, import, run e2e
         run: make test-e2e
-      - name: n8n logs on failure
+      - name: Same stack with DRY_RUN=true
+        run: make test-e2e-dryrun
+      - name: Evaluation harness smoke run (mock)
+        run: make eval-mock
+      - name: Logs on failure
         if: failure()
-        run: docker compose logs --no-color n8n mock | tail -n 300
+        run: docker compose logs --no-color n8n task-runners mock | tail -n 400
       - if: always()
         run: make e2e-down
+
+  bicep:
+    name: Validate Azure Bicep
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: az bicep install
+      - run: az bicep build --file deploy/azure/main.bicep --stdout > /dev/null
+      - run: az bicep lint --file deploy/azure/main.bicep
+
+  image-scan:
+    name: Container image scan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f tests/mock_server/Dockerfile -t leadpilot-mock:ci .
+      - name: Scan the test mock image (ours): fail on fixable critical issues
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: leadpilot-mock:ci
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Report on the pinned upstream images (not ours to patch)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: n8nio/n8n:2.49.6
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0"

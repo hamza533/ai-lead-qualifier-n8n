@@ -9,8 +9,9 @@ Every new lead researched, scored and answered within minutes, with a human appr
 
 ## Commands
 make setup | make dev | make test | make lint | make check | make eval | make seed | make migrate
-make export | make import | make credentials | make hubspot-setup | make tunnel
-make test-e2e (boots n8n + mock server, imports, runs pytest -m e2e) | make e2e-down
+make export | make import | make credentials | make hubspot-setup | make tunnel | make ops ACTION=…
+make test-e2e (test stack: mocks for every external service + mailpit; runs pytest -m "e2e and not dryrun")
+make test-e2e-dryrun (same stack with DRY_RUN=true; pytest -m dryrun) | make eval-mock | make e2e-down
 
 Without GNU make, every target is a one-liner in the Makefile you can run directly, e.g. `uv run python -m scripts.n8n_admin import`.
 
@@ -20,11 +21,13 @@ workflows/      exported n8n workflow JSON (one file per workflow, fixed IDs)
 config/         icp.json + reply_style.md, mounted read-only into n8n
 db/migrations/  SQL for the leadpilot database (leads ledger), applied by make migrate
 sample_data/    synthetic leads for make seed
-scripts/        admin (import/export/credentials), workflow linter, env init, seed, hubspot setup
-tests/          unit tests, e2e tests (pytest -m e2e), mock_server/ (FastAPI Tavily + Gemini mock)
-eval/           30-lead evaluation set, harness, committed results
-deploy/azure/   Bicep production profile (n8n queue mode)
-docs/           SPEC, CONVENTIONS, PROGRESS, DECISIONS, architecture, ui/
+scripts/        admin (migrate/import/export/credentials/api-key), workflow linter, env init, seed,
+                hubspot setup, ops webhook client, db helper, Stitch frame renderer
+tests/          unit (incl. exported Code nodes run under Node.js), e2e (pytest -m e2e / dryrun),
+                mock_server/ (FastAPI Tavily, Gemini, Slack, HubSpot mock)
+eval/           test sets (leads.jsonl, leads_mock.jsonl), harness, prices, committed results
+deploy/azure/   Bicep production profile (n8n queue mode) + runbook
+docs/           SPEC, CONVENTIONS, PROGRESS, DECISIONS, architecture, case-study, ui/
 ```
 
 ## Rules
@@ -58,3 +61,15 @@ None by default (no Next.js UI, no Neon). If a newer n8n version offers its own 
 - **Enrichment never stops a lead:** external nodes in `sub-enrich` continue on error after 3 tries. Don't switch them to "stop workflow"; failures surface as `enrichment_status` + `error` on the lead row.
 - **Webhook signing:** `X-Signature-256: sha256=<hex HMAC-SHA256(raw body, WEBHOOK_HMAC_SECRET)>`. `make seed` and `tests/e2e/conftest.py` show how to sign.
 - **Windows:** run make from Git Bash; `make` is not bundled with Git for Windows.
+- **Every write to Slack, HubSpot or SMTP has a DRY_RUN branch** that records the call in `leads.dry_run_actions`. A new write node needs one too, plus a `dryrun` test.
+- **Slack replies HTTP 200 with `ok: false`** on errors; every Slack HTTP node is followed by a Code node that throws on `!ok`.
+- **The error workflow must stay active**, and sub-workflow failures are reported by their caller (`lpSub*` IDs are skipped), so keep sub-workflow IDs starting with `lpSub`.
+- **Wait-node forms return answers keyed by field label** ("Decision", "Your name"), not by field name; "Read decision" accepts both. Resume URLs are signed (`?signature=`).
+- **The test stack's credentials point at mailpit** (`make e2e-up` passes `SMTP_HOST=mailpit` …); run `make credentials` again before using the dev stack with real SMTP.
+- **Local port clashes:** set `N8N_HOST_PORT` / `MAILPIT_HOST_PORT` in `.env` (and `N8N_URL` / `MAILPIT_URL` to match) if 5678 or 8025 are taken.
+- **`make eval` deletes previous eval leads** (`source = 'eval'`) first; otherwise the 24 h duplicate check would ignore the re-run.
+- **After the decision, everything runs in `finish-lead`**, loaded from the lead row, so it can be resumed. Never send the email anywhere else, and keep `email_sent_at` written right after the send: that is what stops a replay from emailing the lead twice. Only "Record outcome" writes final statuses and `completed_at`; the error handler only touches leads with `completed_at IS NULL`.
+- **"Send email" deliberately has no retry** (notes start with `no-retry:`; the linter requires the reason).
+- **Duplicates are claimed in `lead_claims`**, not by querying `leads`; tests that age a lead past 24 h must age its claim too.
+- **Alerts go through `sub-alert`** (level `error` from the error handler, `warning` for degraded research). Slack text built from lead or model input must be escaped (`&`, `<`, `>`).
+- **n8n's environment is an explicit list** in `docker-compose.yml`. A new workflow setting must be added there (and in `deploy/azure/main.bicep`); never add API keys or passwords to it.

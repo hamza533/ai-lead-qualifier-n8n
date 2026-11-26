@@ -47,12 +47,14 @@ flowchart LR
 | `intake-webhook.json` | Webhook `POST /webhook/lead` | Checks the HMAC signature (401 if invalid), calls `sub-validate`, answers the sender (202 accepted, 200 duplicate/spam, 422 invalid) and starts `main-lead-intake` without waiting. |
 | `intake-form.json` | Form Trigger `/form/lead-form` | Hosted lead form (bots ignored, hidden honeypot field), calls `sub-validate`, starts `main-lead-intake` for accepted leads. |
 | `sub-validate.json` | Execute Workflow Trigger | Normalises and validates a submission, runs the spam and free-mail checks from `config/icp.json`, and claims the lead in the `leads` table unless the same email + message arrived in the last 24 h. Shared by both intakes so the rules exist once. |
-| `main-lead-intake.json` | Execute Workflow Trigger | The lead pipeline: enrichment, scoring, draft, Slack approval, send, CRM (built in M2–M5). |
+| `main-lead-intake.json` | Execute Workflow Trigger | The lead pipeline up to the decision: enrichment, scoring, draft, Slack approval. Hands over to `finish-lead` (without waiting). |
+| `finish-lead.json` | Execute Workflow Trigger | Everything after the decision, loaded from the lead row so it can be resumed: send (if not sent yet), CRM, Slack outcome update, final status. See 3.7. |
+| `sub-alert.json` | Execute Workflow Trigger | Records an alert (masked email) and posts it to the alerts channel. Used by the error handler (failures) and the pipeline (research warnings). |
+| `sub-draft.json` | Execute Workflow Trigger | Reply draft in the configured style, checked in code. See 3.4. |
 | `sub-enrich.json` | Execute Workflow Trigger | Web research (Tavily search + extract) and a structured, source-checked company profile (Gemini). See 3.2. |
 | `sub-score.json` | Execute Workflow Trigger | Per-criterion ratings from Gemini, deterministic total and tier in a Code node. See 3.3. |
-| `sub-crm-update.json` | Execute Workflow Trigger | HubSpot contact/company upsert, custom properties, note, follow-up task. The only HubSpot-aware workflow, so swapping CRM is contained here. |
-| `error-handler.json` | Error Trigger | Posts failures to the alerts channel (execution link, masked email) and marks the lead recoverable. |
-| `daily-cold-digest.json` | Schedule (daily) | Cold-lead digest to Slack and purge of lead rows past retention. |
+| `sub-crm-update.json` | Execute Workflow Trigger | HubSpot contact/company upsert, custom properties, note, follow-up task. The only HubSpot-aware workflow, so swapping CRM is contained here. See 3.6. |
+| `error-handler.json`, `daily-cold-digest.json`, `approval-reminders.json`, `ops-webhooks.json` | Error / schedule / webhook | See section 5. |
 
 Every workflow except `error-handler` sets `settings.errorWorkflow` to the error handler. Workflow IDs are fixed (set in the exported JSON) so `Execute Workflow` references survive export/import.
 
@@ -75,7 +77,7 @@ X-Signature-256: sha256=<hex HMAC-SHA256(raw body, WEBHOOK_HMAC_SECRET)>
 | `202 {"status": "accepted", "lead_id": "ld_…"}` | Stored with status `received`; the pipeline starts in the background. |
 
 ### 2.2 Leads table (`leadpilot` database, `db/migrations/`)
-One row per accepted or spam submission: `lead_id`, `lead_hash`, `source`, `status`, timestamps, contact fields, `payload` (the normalised lead, for replaying recoverable leads), and later `enrichment_status`, `score`, `tier`, `error`, `execution_id`. Spam rows keep no name, email or payload. Rows are purged after `LEAD_RETENTION_DAYS` (default 30) by the daily workflow (M5); HubSpot keeps the long-term record.
+Duplicate check: `lead_claims` (primary key `lead_hash`) is claimed atomically for 24 h, so two identical submissions arriving together still create one lead. One `leads` row per accepted or spam submission: `lead_id`, `lead_hash`, `source`, `status`, timestamps, contact fields, `payload` (the normalised lead, for replaying recoverable leads), and later `enrichment_status`, `score`, `tier`, `error`, `execution_id`. Spam rows keep no name, email or payload. Rows are purged after `LEAD_RETENTION_DAYS` (default 30) by the daily workflow (M5); HubSpot keeps the long-term record.
 
 ## 3. Sub-workflow contracts
 
@@ -169,56 +171,89 @@ How it works:
 
 `tests/unit/test_score_maths.py` runs the exported "Compute score" node code under Node.js with 300 fixed random rating sets and the edge cases above, and checks it against an independent Python implementation of the formula.
 
-### 3.4 `sub-crm-update`
-Input:
+### 3.4 `sub-draft`
+Input: `{ "lead", "enrichment", "scoring" }`. Output:
 ```json
-{
-  "lead": "<normalised lead>",
-  "enrichment": "<sub-enrich output>",
-  "scoring": "<sub-score output>",
-  "decision": {
-    "outcome": "approved | approved_edited | rejected | timeout | cold",
-    "approver": "U0123",
-    "reject_reason": "",
-    "email": { "sent": true, "subject": "...", "body": "..." }
-  },
-  "status": "approved_sent"
-}
+{ "subject": "Your shipment-tracking portal", "body": "Hi Daniel, …",
+  "facts_used": [ { "fact": "Launched a cold-chain service", "source": "https://news.example/…" } ],
+  "flags": [ "figure not found in the message or research: \"30%\"" ], "word_count": 72,
+  "usage": { "llm_input_tokens": 0, "llm_output_tokens": 0 } }
 ```
-Output:
-```json
-{ "dry_run": false, "contact_id": "123", "contact_created": true, "company_id": "456",
-  "note_id": "789", "task_id": "1011" }
-```
+`config/reply_style.md` (with `{{BOOKING_LINK}}` filled in) is the system prompt. Only the lead's first name, role, company, budget, message and the research facts are sent. "Check draft" (code) flags forbidden phrases quoted in the style guide, figures (money, %, numbers of 2+ digits) not found in the message, research or style guide, `facts_used` citing unread pages, and long emails; it adds a missing booking link before the sign-off.
+
+### 3.5 Approval (in `main-lead-intake`)
+"Build approval request" chooses the mode: **auto** (eval lead, `DEMO_MODE` + `EVAL_AUTO_APPROVE`), **dry** (`DRY_RUN`: the Slack message is recorded on the lead) or **live** (`chat.postMessage` to `SLACK_APPROVAL_CHANNEL`; `ok: false` stops the lead). The message has the summary, the score with per-criterion reasons, the research and sources, the draft and its warnings, and a "Review and decide" button linking to the Wait node's form (`$execution.resumeFormUrl`, signed by n8n).
+
+The Wait node waits up to `APPROVAL_TIMEOUT_HOURS` for the form: reviewer name, decision (Approve / Approve with edits / Reject), subject and body (pre-filled with the draft), reject reason. "Read decision" returns `{ outcome: approved | approved_edited | rejected | timeout, approver, subject, body, reject_reason, decided_at }`; any change to the subject or body counts as an edit. `approval-reminders` (every 15 min, or ops `run_reminders`) posts one threaded reminder after `APPROVAL_REMINDER_HOURS`.
+
+### 3.7 `finish-lead`
+Input: `{ "lead_id" }`. "Load lead" claims the lead for this execution (`pipeline_execution_id`) and loads the payload, research, score, decision, sent email and Slack message; finished leads (`completed_at` set) are skipped. Then:
+1. Send the email if the outcome is approved and `email_sent_at` is empty (no automatic retry; `email_sent_at` is recorded right after the send).
+2. `sub-crm-update`.
+3. Update the Slack approval message with the outcome (failure is noted on the lead, not fatal).
+4. "Record outcome": final status and `completed_at`.
+
+Because it starts from the stored row, `ops` › `replay` of a decided (or cold) lead resumes here: nothing is drafted, asked or sent twice.
+
+### 3.6 `sub-crm-update`
+Input: `{ "lead", "enrichment", "scoring", "decision" (null for cold), "email" (null unless sent), "outcome": "approved | approved_edited | rejected | timeout | cold" }`.
+
+Calls (CRM v3/v4, `HUBSPOT_BASE_URL`, HubSpot app-token credential):
+1. `POST /crm/v3/objects/contacts/batch/upsert` with `idProperty: email`: create or update, never duplicate. Sets name, job title, company, website, `ai_lead_score`, `ai_lead_tier`, `ai_score_reasons`, `ai_last_processed`.
+2. Company: `POST /crm/v3/objects/companies/search` by `domain` (or `name` without a company domain), else `POST /crm/v3/objects/companies`; then `PUT /crm/v4/objects/contact/{id}/associations/default/company/{id}`.
+3. `POST /crm/v3/objects/notes` (score reasons, research, sources, message, outcome or sent email), associated with the contact and company.
+4. `POST /crm/v3/objects/tasks` when needed: approved → due in `FOLLOW_UP_DAYS`; timeout → due now, HIGH; none for rejected or cold.
+
+Output: `{ dry_run: false, outcome, contact_id, contact_created, company_id, company_created, note_id, task_id }`, or with `DRY_RUN` `{ dry_run: true, dry_actions: [...] }`.
 
 ## 4. Lead statuses
-`received` → `rejected_spam` | `duplicate_ignored` | `enriched` or `enrichment_failed` (recoverable: continues on form data only; `enrichment_status` keeps `ok`/`partial`/`failed`) → `scored` → `awaiting_approval` → `approved_sent` | `rejected_by_reviewer` | `needs_manual_follow_up` (timeout) ; `cold_recorded` for cold leads; `error_recoverable` when a step fails after retries (the error workflow sets it and the lead can be replayed from the stored row).
+`received` → `processing` → `enriched` / `enrichment_failed` (continues on form data; `enrichment_status` keeps `ok`/`partial`/`failed`) → `scored` → `drafted` → `awaiting_approval` → `approved` / `rejected` / `timed_out` (decided; `finish-lead` running) → final (written only by `finish-lead` › "Record outcome", together with `completed_at`):
 
-## 5. Config files
+| Final status | When |
+|---|---|
+| `approved_sent` | Approved (with or without edits); email sent, HubSpot updated, Slack updated. |
+| `rejected_by_reviewer` | Rejected; HubSpot note with the reason, no email, no task. |
+| `needs_manual_follow_up` | No decision within `APPROVAL_TIMEOUT_HOURS`; HubSpot task due now. |
+| `cold_recorded` | Cold tier; HubSpot contact + note, listed in the daily digest. |
+| `rejected_spam` / `duplicate_ignored` | At intake (duplicates aren't stored again). |
+| `error_recoverable` | A step failed after its retries, at any point before `completed_at`. The error workflow sets it, alerts, and keeps everything. `POST /webhook/ops {"action": "replay", "lead_id": …}` **resumes** at `finish-lead` when the lead is already decided (or cold) and **restarts** the pipeline from the stored lead otherwise. |
+
+## 5. Scheduled and ops workflows
+| Workflow | Trigger | Does |
+|---|---|---|
+| `approval-reminders.json` | Every 15 min + ops | One threaded Slack reminder per lead waiting longer than `APPROVAL_REMINDER_HOURS`. |
+| `daily-cold-digest.json` | Daily 08:00 + ops | First deletes lead rows and alerts older than `LEAD_RETENTION_DAYS` (and duplicate-check claims older than a day), then posts the Slack digest of cold leads from the last 24 h. |
+| `error-handler.json` | Error Trigger (every workflow's error workflow) | Marks the unfinished lead `error_recoverable` and sends an `error` alert through `sub-alert` (masked email, execution link, replay hint). Sub-workflow (`lpSub*`) failures are reported once, by their caller. |
+| `ops-webhooks.json` | `POST /webhook/ops`, header `X-LeadPilot-Ops-Token` | `run_reminders`, `run_digest`, `replay` (202 with `mode: resume|restart`, or 409 if the lead isn't recoverable). `make ops ACTION=…`. |
+
+## 6. Config files
 | File | Contents |
 |---|---|
-| `config/icp.json` | Criteria (key, name, description, weight, 0–3 rating guide), tier thresholds, free-mail domains, spam rules (max links, honeypot field name). |
-| `config/reply_style.md` | Tone, structure, sign-off, `{{BOOKING_LINK}}` placeholder, forbidden claims. |
+| `config/icp.json` | Business, criteria (key, name, description, weight, 0–3 rating guide), tier thresholds, free-mail domains, spam rules (honeypot field, max links, blocked phrases). |
+| `config/reply_style.md` | Voice, structure, subject rules, `{{BOOKING_LINK}}`, forbidden claims (quoted phrases are also checked in code). |
 
 The `config/` folder is mounted read-only into n8n at `/home/node/.n8n-files/config` (the only path n8n file nodes may read, via `N8N_RESTRICT_FILE_ACCESS_TO`). Clients edit the files and the next execution picks them up; no re-import needed.
 
-## 6. External services
-| Service | Node | Base URL | Auth (credential name) |
+## 7. External services
+| Service | Node | Base URL | Credential |
 |---|---|---|---|
 | Tavily | HTTP Request | `$env.TAVILY_BASE_URL` | `Tavily API` (header auth) |
-| Gemini | HTTP Request | `$env.GEMINI_BASE_URL` | `Gemini API` (header auth `x-goog-api-key`) |
-| HubSpot | HubSpot node | – | `HubSpot` (app token) |
-| Slack | Slack node | – | `Slack Bot` |
+| Gemini | HTTP Request | `$env.GEMINI_BASE_URL` | `Gemini API` (header `x-goog-api-key`) |
+| HubSpot | HTTP Request (CRM v3/v4) | `$env.HUBSPOT_BASE_URL` | `HubSpot` (app token) |
+| Slack | HTTP Request (`chat.postMessage`, `chat.update`) | `$env.SLACK_BASE_URL` | `Slack Bot` (bot token) |
 | Email | Send Email (SMTP) | – | `SMTP` |
+| Leads database | Postgres | – | `LeadPilot DB` |
 
-Every external-call node: `retryOnFail: true`, `maxTries ≥ 3`, `waitBetweenTries` set, and a request timeout. CI enforces this (`scripts/lint_workflows.py`).
+Every external-call node: `retryOnFail: true`, `maxTries ≥ 3`, `waitBetweenTries` set (3–5 s), and a request timeout. Research nodes continue on error (degrade); everything else stops the lead, which the error workflow makes recoverable. CI enforces the retry settings (`scripts/lint_workflows.py`).
 
-## 7. Test harness
+## 8. Test harness
 ```mermaid
 flowchart LR
-  P[pytest e2e] -->|signed POST| N8N[n8n test instance]
-  N8N -->|TAVILY_BASE_URL / GEMINI_BASE_URL| MOCK[FastAPI mock server]
-  P -->|/_control: inject failures, read calls| MOCK
-  P -->|public API: executions| N8N
+  P[pytest e2e] -->|signed POST, form posts| N8N[n8n test instance<br/>+ task runners]
+  N8N -->|*_BASE_URL| MOCK[FastAPI mock<br/>Tavily, Gemini, Slack, HubSpot]
+  N8N -->|SMTP| MP[mailpit]
+  P -->|/_control: fail, calls, HubSpot state| MOCK
+  P -->|messages| MP
+  P -->|leads table, public API| N8N
 ```
-With `DRY_RUN=true` the HubSpot, Slack and email nodes are skipped and their would-be payloads are returned in the execution data, which the tests assert on.
+`make test-e2e` runs the full write path against the fakes; `make test-e2e-dryrun` recreates n8n with `DRY_RUN=true` and checks that nothing is posted, sent or written while every skipped call is recorded in `leads.dry_run_actions`. Unit tests run the exported Code nodes (score maths, draft checks, decisions, alerts) under Node.js.
