@@ -1,13 +1,13 @@
 # PROGRESS – handoff log
 
 ## Status
-**Current milestone:** M2 – Enrichment sub-workflow (next)
+**Current milestone:** M3 – Scoring sub-workflow (next)
 
 | # | Milestone | Status |
 |---|---|---|
 | M0 | Repo foundation | done (merged to `main` locally) |
 | M1 | Intake + validation | done (merged to `main` locally) |
-| M2 | Enrichment sub-workflow | not started |
+| M2 | Enrichment sub-workflow | done (merged to `main` locally) |
 | M3 | Scoring sub-workflow | not started |
 | M4 | Draft + Slack approval | not started |
 | M5 | Send + CRM sub-workflow | not started |
@@ -20,7 +20,9 @@
 
 **Done in M1:** `intake-webhook` (HMAC over raw body → 401; 422 invalid, 200 spam/duplicate, 202 accepted), `intake-form` (hosted form, `ignoreBots`, hidden honeypot), shared `sub-validate` (normalisation, website/email domain, free-mail flag, spam rules, 24 h idempotency via the `leads` table), `main-lead-intake` pipeline entry (started async). `config/icp.json`, `db/migrations/001_leads.sql` + `make migrate`, `make seed` + `sample_data/leads.jsonl`, API-key bootstrap, activation via public API. Stack moved to Postgres 17.6 + external task runners. 22 intake e2e tests (`tests/e2e/test_intake.py`, 24 with the smoke tests), green on a from-scratch rebuild. See DECISIONS 12–19.
 
-**Next step:** M2 on `feat/m2-enrich`: `sub-enrich` (Tavily search + extract, Gemini structured profile via HTTP Request with `$env` base URLs, retries, "website unreachable" path), mock fixtures, then call it from `main-lead-intake` and record `enrichment_status` on the lead row.
+**Done in M2:** `sub-enrich` (Tavily search → extract up to 3 pages → Gemini profile with `responseSchema` → grounding guard), statuses `ok`/`partial`/`failed`, retries 3× then graceful degradation (lead continues as `enrichment_failed`, scored on form data only), pipeline stores profile + usage (migration `002`). Mock: company aliases, schema-based Gemini task detection, third-party page extraction. 10 enrichment e2e tests. `make import` now activates in dependency order derived from workflow references (unit-tested; the old name-based order broke on a fresh rebuild).
+
+**Next step:** M3 on `feat/m3-score`: `sub-score` (Gemini rates each `config/icp.json` criterion 0–3 with reason + evidence; a Code node computes the weighted 0–100 total and tier), a test proving total = weighted ratings with fixed ratings, then call it from `main-lead-intake` and store score/tier on the lead row.
 
 ## Blockers / open questions
 - **No GitHub remote yet.** Milestones are merged locally with `--no-ff`; CI runs once the repo is pushed. Creating the public repo needs the owner's OK.
@@ -34,14 +36,15 @@
 ```
 make setup        # uv sync + .env with generated secrets
 make dev          # n8n + Postgres → http://localhost:${N8N_HOST_PORT} (owner login: .env N8N_INSTANCE_OWNER_EMAIL / N8N_OWNER_PASSWORD)
-make check        # ruff, ruff format --check, mypy --strict, workflow lint, 15 unit tests
-make test-e2e     # boots n8n + runners + mock (DRY_RUN), migrates, imports credentials + workflows, runs pytest -m e2e (24 tests: 2 smoke + 22 intake)
+make check        # ruff, ruff format --check, mypy --strict, workflow lint, 20 unit tests
+make test-e2e     # boots n8n + runners + mock (DRY_RUN), migrates, imports credentials + workflows, runs pytest -m e2e (34 tests: 2 smoke + 22 intake + 10 enrichment)
 make seed         # posts sample_data/leads.jsonl to the signed webhook (expect 202, 202, 202, 202, 200 spam)
 ```
-Expected: `n8n ready at http://localhost:5680`, `created/updated 6 credentials`, `activated` ×4, `15 passed`, `24 passed`.
+Expected: `n8n ready at http://localhost:5680`, `created/updated 6 credentials`, `activated` ×4, `20 passed`, `34 passed`.
 
 ## Session log
 - 2026-11-25 – Claude Code – Repo initialised; docs, architecture and progress plan written.
 - 2026-11-26 – Claude Code – M0 foundation built and verified (n8n boots on Postgres, owner from env, credentials import encrypted with fixed IDs, check + e2e smoke green).
 - 2026-11-26 – Claude Code – Stitch showcase exported to docs/ui (7 frames 1920×1080 + full pages + HTML + design tokens); invented claims and real-looking domains corrected.
 - 2026-11-26 – Claude Code – M1 intake + validation: webhook/form intakes, sub-validate, leads ledger, Postgres 17 + external runners; 24 e2e tests green on a fresh rebuild.
+- 2026-11-26 – Claude Code – M2 enrichment: sub-enrich with grounding guard and graceful degradation, usage tracking; 34 e2e tests green on a fresh rebuild.

@@ -20,7 +20,6 @@ import shutil
 import subprocess
 import sys
 import time
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -209,20 +208,52 @@ def import_workflows() -> None:
     key = api_key()
     url = read_env().get("N8N_URL", "http://localhost:5678")
 
-    # n8n only publishes a workflow once the sub-workflows it calls are published,
-    # so activate the error handler and sub-workflows first, the trigger workflows last.
-    def order(path: Path) -> int:
-        stem = path.stem
-        return 0 if stem == "error-handler" else 1 if stem.startswith(("sub-", "main-")) else 2
-
+    workflows = [json.loads(p.read_text(encoding="utf-8")) for p in files]
     with httpx.Client(base_url=url, headers={"X-N8N-API-KEY": key}, timeout=30) as client:
-        for path in sorted(files, key=order):
-            workflow = json.loads(path.read_text(encoding="utf-8"))
+        for workflow in activation_order(workflows):
             if workflow.get("active"):
                 res = client.post(f"/api/v1/workflows/{workflow['id']}/activate")
                 if res.status_code >= 400:
-                    raise SystemExit(f"activating {path.name} failed: {res.text[:500]}")
+                    raise SystemExit(f"activating {workflow['name']} failed: {res.text[:500]}")
                 print(f"activated {workflow['name']}")
+
+
+def referenced_workflows(workflow: dict[str, Any]) -> set[str]:
+    """IDs of the sub-workflows (and error workflow) this workflow depends on."""
+    refs = set()
+    for node in workflow.get("nodes", []):
+        if node.get("type") == "n8n-nodes-base.executeWorkflow":
+            target = node.get("parameters", {}).get("workflowId", {})
+            value = target.get("value") if isinstance(target, dict) else target
+            if isinstance(value, str) and value:
+                refs.add(value)
+    error_workflow = workflow.get("settings", {}).get("errorWorkflow")
+    if error_workflow:
+        refs.add(error_workflow)
+    return refs - {workflow["id"]}
+
+
+def activation_order(workflows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Dependencies first: n8n won't publish a workflow whose sub-workflows aren't published."""
+    by_id = {w["id"]: w for w in workflows}
+    ordered: list[dict[str, Any]] = []
+    state: dict[str, str] = {}
+
+    def visit(wid: str) -> None:
+        if state.get(wid) == "done":
+            return
+        if state.get(wid) == "visiting":
+            raise SystemExit(f"workflow reference cycle through {wid}")
+        state[wid] = "visiting"
+        for dep in sorted(referenced_workflows(by_id[wid])):
+            if dep in by_id:  # references to workflows not in /workflows are n8n's problem
+                visit(dep)
+        state[wid] = "done"
+        ordered.append(by_id[wid])
+
+    for wid in sorted(by_id):
+        visit(wid)
+    return ordered
 
 
 def _fill(value: Any, env: dict[str, str]) -> Any:

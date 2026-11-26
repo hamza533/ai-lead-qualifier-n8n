@@ -50,10 +50,13 @@ def test_valid_lead_is_accepted_stored_and_starts_the_pipeline(
     body = res.json()
     assert body["status"] == "accepted"
     lead_id = body["lead_id"]
-    assert lead_row(lead_id) == [
-        "webhook", "received", "Daniel Reyes",
+    source, status, name, email, domain = lead_row(lead_id)
+    assert [source, name, email, domain] == [
+        "webhook", "Daniel Reyes",
         "daniel.reyes@harborlogistics.example", "harborlogistics.example",
     ]  # fmt: skip
+    # The pipeline runs in the background and may already have moved the lead on.
+    assert status not in {"rejected_spam", "duplicate_ignored"}
 
     def pipeline_started() -> bool:
         runs = api.get(
@@ -193,11 +196,12 @@ def test_hosted_form_submission_is_stored(n8n_url: str) -> None:
 
     def stored() -> list[list[str]]:
         return sql(
-            "SELECT source, status, website_domain, personal_email FROM leads "
+            "SELECT source, website_domain, personal_email FROM leads "
             f"WHERE payload->>'message' LIKE '%{marker}'"  # noqa: S608
         )
 
-    assert wait_for(stored) == [["form", "received", "coastlineclinics.example", "t"]]
+    # Status is not asserted: the background pipeline may already have moved the lead on.
+    assert wait_for(stored) == [["form", "coastlineclinics.example", "t"]]
 
 
 def test_hosted_form_ignores_bots(n8n_url: str) -> None:
