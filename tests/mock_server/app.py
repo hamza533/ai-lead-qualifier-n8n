@@ -35,11 +35,27 @@ def _load(name: str) -> dict[str, Any]:
 
 
 def _company_fixture(text: str) -> dict[str, Any]:
+    """Pick the fixture whose domain (or one of its company-name aliases) appears in text."""
     companies: dict[str, Any] = _load("companies")
+    lowered = text.lower()
     for domain, data in companies.items():
-        if domain in text:
+        if domain.startswith("_"):
+            continue
+        names = [domain, *data.get("aliases", [])]
+        if any(name.lower() in lowered for name in names):
             return {"domain": domain, **data}
     return {"domain": None, **companies.get("_default", {})}
+
+
+def _gemini_task(body: dict[str, Any]) -> str:
+    """Tell the request type apart by the response schema, so prompts need no test markers."""
+    schema = json.dumps(body.get("generationConfig", {}).get("responseSchema", {}))
+    for key, task in (("what_they_do", "profile"), ("ratings", "score"),
+                      ("subject", "draft"), ("claims", "judge")):  # fmt: skip
+        if f'"{key}"' in schema:
+            return task
+    match = TASK_RE.search(json.dumps(body))
+    return match.group(1) if match else "unknown"
 
 
 def _maybe_fail(service: str) -> None:
@@ -104,13 +120,25 @@ async def tavily_extract(request: Request) -> dict[str, Any]:
     _maybe_fail("tavily_extract")
     urls = body.get("urls", [])
     urls = [urls] if isinstance(urls, str) else urls
+    # Third-party pages known from any fixture's search results can be extracted too.
+    known_pages = {
+        r["url"]: r["content"]
+        for data in _load("companies").values()
+        for r in data.get("search_results", [])
+    }
     results, failed = [], []
     for url in urls:
         fixture = _company_fixture(url)
-        if fixture.get("unreachable") or fixture["domain"] is None:
+        own_site = fixture["domain"] is not None and fixture["domain"] in url
+        if own_site and fixture.get("unreachable"):
             failed.append({"url": url, "error": "Failed to fetch url"})
+        elif own_site:
+            page = fixture.get("page_text", "") or known_pages.get(url, "")
+            results.append({"url": url, "raw_content": page})
+        elif url in known_pages:
+            results.append({"url": url, "raw_content": known_pages[url]})
         else:
-            results.append({"url": url, "raw_content": fixture.get("page_text", "")})
+            failed.append({"url": url, "error": "Failed to fetch url"})
     return {"results": results, "failed_results": failed, "response_time": 0.1}
 
 
@@ -123,11 +151,10 @@ async def gemini_generate(model_action: str, request: Request) -> JSONResponse:
     if not model_action.endswith(":generateContent"):
         raise HTTPException(404, "only :generateContent is mocked")
     body = await request.json()
-    _record("gemini", model_action, body)
+    task = _gemini_task(body)
+    _record("gemini", f"{model_action}#{task}", body)
     _maybe_fail("gemini")
-    prompt = json.dumps(body)
-    match = TASK_RE.search(prompt)
-    task = match.group(1) if match else "unknown"
+    prompt = json.dumps(body.get("contents", body))
     fixture = _company_fixture(prompt)
     answer = fixture.get("gemini", {}).get(task) or _load("gemini_defaults").get(task, {})
     text = json.dumps(answer)

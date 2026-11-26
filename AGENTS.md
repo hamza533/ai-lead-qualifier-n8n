@@ -49,8 +49,10 @@ None by default (no Next.js UI, no Neon). If a newer n8n version offers its own 
   - `$env` access is enabled on purpose (`N8N_BLOCK_ENV_ACCESS_IN_NODE=false`) for non-secret settings; the only secret read this way is `WEBHOOK_HMAC_SECRET` (DECISIONS 7).
   - File nodes can only read `/home/node/.n8n-files` (the mounted `config/`).
   - **A workflow with a Form Trigger may not contain a "Respond to Webhook" node**; that's why the form and webhook intakes are separate workflows.
-  - `import:workflow --activeState` doesn't work in single-instance mode. `make import` activates through the public API instead, sub-workflows first: n8n won't publish a workflow whose sub-workflows aren't published.
+  - `import:workflow --activeState` doesn't work in single-instance mode. `make import` activates through the public API instead, in dependency order derived from the Execute Workflow references (`activation_order` in `scripts/n8n_admin.py`).
   - n8n's hosted form returns 401 to bot user agents (`ignoreBots`). Use a browser user agent when testing it with curl.
 - **Leads database:** schema changes go in a new numbered file in `db/migrations/` (lowercase letters, digits, underscores), applied by `make migrate`. Never edit an applied migration.
+- **Mock server:** companies live in `tests/mock_server/fixtures/companies.json`, matched by domain or `aliases` (company name). Gemini answers are chosen by the request's `responseSchema` keys, so keep the schema property names (`what_they_do`, `ratings`, `subject`, `claims`) stable or update `_gemini_task`. Tests steer failures with `POST /_control/fail`; reset with `/_control/reset`.
+- **Enrichment never stops a lead:** external nodes in `sub-enrich` continue on error after 3 tries. Don't switch them to "stop workflow"; failures surface as `enrichment_status` + `error` on the lead row.
 - **Webhook signing:** `X-Signature-256: sha256=<hex HMAC-SHA256(raw body, WEBHOOK_HMAC_SECRET)>`. `make seed` and `tests/e2e/conftest.py` show how to sign.
 - **Windows:** run make from Git Bash; `make` is not bundled with Git for Windows.

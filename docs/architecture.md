@@ -48,7 +48,7 @@ flowchart LR
 | `intake-form.json` | Form Trigger `/form/lead-form` | Hosted lead form (bots ignored, hidden honeypot field), calls `sub-validate`, starts `main-lead-intake` for accepted leads. |
 | `sub-validate.json` | Execute Workflow Trigger | Normalises and validates a submission, runs the spam and free-mail checks from `config/icp.json`, and claims the lead in the `leads` table unless the same email + message arrived in the last 24 h. Shared by both intakes so the rules exist once. |
 | `main-lead-intake.json` | Execute Workflow Trigger | The lead pipeline: enrichment, scoring, draft, Slack approval, send, CRM (built in M2–M5). |
-| `sub-enrich.json` | Execute Workflow Trigger | Web research and structured company profile. |
+| `sub-enrich.json` | Execute Workflow Trigger | Web research (Tavily search + extract) and a structured, source-checked company profile (Gemini). See 3.2. |
 | `sub-score.json` | Execute Workflow Trigger | Per-criterion ratings from Gemini, deterministic total and tier in a Code node. |
 | `sub-crm-update.json` | Execute Workflow Trigger | HubSpot contact/company upsert, custom properties, note, follow-up task. The only HubSpot-aware workflow, so swapping CRM is contained here. |
 | `error-handler.json` | Error Trigger | Posts failures to the alerts channel (execution link, masked email) and marks the lead recoverable. |
@@ -113,7 +113,7 @@ Output:
 ```json
 {
   "enrichment_status": "ok | partial | failed",
-  "enrichment_note": "website unreachable – profile built from search results only",
+  "enrichment_note": "website unreachable – profile built from other public sources",
   "profile": {
     "what_they_do":  { "value": "Freight logistics", "confidence": "high", "sources": ["https://..."] },
     "industry":      { "value": "Logistics", "confidence": "high", "sources": ["https://..."] },
@@ -122,10 +122,23 @@ Output:
     "notable_facts": [ { "fact": "Launched a cold-chain service in 2026", "confidence": "medium", "sources": ["https://..."] } ]
   },
   "sources": [ { "url": "https://...", "title": "..." } ],
-  "usage": { "llm_input_tokens": 0, "llm_output_tokens": 0, "tavily_credits": 0 }
+  "usage": { "llm_input_tokens": 0, "llm_output_tokens": 0, "tavily_credits": 0 },
+  "grounding": { "dropped_unsourced": 0 },
+  "errors": []
 }
 ```
-`failed` means both search and website were unusable; scoring then runs on form data only (`enrichment_failed – scored on form data only`).
+Input is the whole item from `sub-validate` (only `lead` is read).
+
+How it works:
+1. **Tavily search** for `"<company>" <domain> company` (basic depth, 5 results, 1 credit). Personal-email leads have no domain, so the company name alone is searched.
+2. **Tavily extract** of up to 3 pages: the lead's website first, then the top search results (1 credit per 5 pages read).
+3. **Status:** `ok` when the company website was read; `partial` when the website is missing or unreachable but other sources exist; `failed` when nothing usable was found. `failed` skips the model call, and the lead continues as `enrichment_failed` (scored on form data only, recoverable).
+4. **Gemini profile** (HTTP Request, `responseSchema`, temperature 0.1, thinking off) over the numbered sources only. The prompt tells the model the sources are untrusted data.
+5. **Grounding guard** (Code node): any value or fact whose source URLs were not among the pages read is replaced by `Unknown` or dropped, and counted in `grounding.dropped_unsourced`.
+
+Every HTTP node retries 3 times, 3 s apart, with a timeout (search 20 s, extract 30 s, Gemini 60 s), then continues on its error output, so an outage degrades the profile instead of losing the lead. The error text is kept in `errors` and stored on the lead row.
+
+`main-lead-intake` stores the result on the lead row: `enrichment_status`, `enrichment` (note, profile, sources, grounding), `error`, and adds the usage to `llm_input_tokens`, `llm_output_tokens` and `tavily_credits` (migration `002`). Status becomes `enriched` or `enrichment_failed`.
 
 ### 3.3 `sub-score`
 Input: `{ "lead": <normalised lead>, "enrichment": <sub-enrich output> }`
@@ -168,7 +181,7 @@ Output:
 ```
 
 ## 4. Lead statuses
-`received` → `rejected_spam` | `duplicate_ignored` | `scored` (with `enrichment_failed` flag when applicable) → `awaiting_approval` → `approved_sent` | `rejected_by_reviewer` | `needs_manual_follow_up` (timeout) ; `cold_recorded` for cold leads; `error_recoverable` when a step fails after retries (the error workflow sets it and the lead can be replayed from the stored row).
+`received` → `rejected_spam` | `duplicate_ignored` | `enriched` or `enrichment_failed` (recoverable: continues on form data only; `enrichment_status` keeps `ok`/`partial`/`failed`) → `scored` → `awaiting_approval` → `approved_sent` | `rejected_by_reviewer` | `needs_manual_follow_up` (timeout) ; `cold_recorded` for cold leads; `error_recoverable` when a step fails after retries (the error workflow sets it and the lead can be replayed from the stored row).
 
 ## 5. Config files
 | File | Contents |

@@ -18,12 +18,66 @@
       }
     },
     {
-      "id": "7a2e0b63-2d66-4c2f-8e2b-1d2f3b000051",
-      "name": "Next: enrichment (M2)",
+      "id": "9d4a2e85-4b7c-4d1e-9f2a-000000000001",
+      "name": "Enrich company",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        0
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "lpSubEnrich00001"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "9d4a2e85-4b7c-4d1e-9f2a-000000000002",
+      "name": "Record enrichment",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        480,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "postgres": {
+          "id": "lpCredLeadsDb001",
+          "name": "LeadPilot DB"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Keep the research with the lead; a failed enrichment is a recoverable status,\n-- the lead continues and is scored on form data only.\nUPDATE leads SET\n  enrichment_status = $2,\n  status = CASE WHEN $2 = 'failed' THEN 'enrichment_failed' ELSE 'enriched' END,\n  enrichment = $3::jsonb,\n  error = NULLIF($4, ''),\n  llm_input_tokens = llm_input_tokens + $5::int,\n  llm_output_tokens = llm_output_tokens + $6::int,\n  tavily_credits = tavily_credits + $7::int,\n  updated_at = now()\nWHERE lead_id = $1\nRETURNING lead_id, status;",
+        "options": {
+          "queryReplacement": "={{ [$('Lead accepted').first().json.lead.lead_id, $json.enrichment_status, JSON.stringify({ note: $json.enrichment_note, profile: $json.profile, sources: $json.sources, grounding: $json.grounding }), ($json.errors || []).join('; '), $json.usage.llm_input_tokens, $json.usage.llm_output_tokens, $json.usage.tavily_credits] }}"
+        }
+      }
+    },
+    {
+      "id": "9d4a2e85-4b7c-4d1e-9f2a-000000000003",
+      "name": "Next: scoring (M3)",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        240,
+        720,
         0
       ],
       "parameters": {}
@@ -34,7 +88,29 @@
       "main": [
         [
           {
-            "node": "Next: enrichment (M2)",
+            "node": "Enrich company",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich company": {
+      "main": [
+        [
+          {
+            "node": "Record enrichment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record enrichment": {
+      "main": [
+        [
+          {
+            "node": "Next: scoring (M3)",
             "type": "main",
             "index": 0
           }

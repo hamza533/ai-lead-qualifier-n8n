@@ -1,14 +1,57 @@
 {
   "harborlogistics.example": {
+    "aliases": ["Harbor Logistics"],
     "search_results": [
       {"title": "Harbor Logistics – Freight forwarding and cold-chain", "url": "https://harborlogistics.example/about", "content": "Harbor Logistics is a mid-size freight logistics company with about 180 employees and offices in Rotterdam and Singapore.", "score": 0.92},
       {"title": "Harbor Logistics launches cold-chain service", "url": "https://news.example/harbor-cold-chain", "content": "This year Harbor Logistics launched a new cold-chain service for pharmaceutical shipments.", "score": 0.81}
     ],
-    "page_text": "Harbor Logistics. Freight forwarding, warehousing and cold-chain logistics. Offices in Rotterdam and Singapore. About 180 people."
+    "page_text": "Harbor Logistics. Freight forwarding, warehousing and cold-chain logistics. Offices in Rotterdam and Singapore. About 180 people.",
+    "gemini": {
+      "profile": {
+        "what_they_do": {"value": "Freight forwarding, warehousing and cold-chain logistics", "confidence": "high", "sources": ["https://harborlogistics.example", "https://harborlogistics.example/about"]},
+        "industry": {"value": "Logistics", "confidence": "high", "sources": ["https://harborlogistics.example/about"]},
+        "size_estimate": {"value": "~180 employees", "confidence": "medium", "sources": ["https://harborlogistics.example/about"]},
+        "location": {"value": "Rotterdam, Singapore", "confidence": "high", "sources": ["https://harborlogistics.example/about"]},
+        "notable_facts": [
+          {"fact": "Launched a cold-chain service for pharmaceutical shipments this year", "confidence": "medium", "sources": ["https://news.example/harbor-cold-chain"]},
+          {"fact": "Ranked the fastest-growing forwarder in Europe", "confidence": "medium", "sources": ["https://invented.example/ranking"]}
+        ]
+      }
+    }
   },
   "unreachable.example": {
+    "aliases": ["Unreachable Corp"],
     "unreachable": true,
-    "search_results": []
+    "search_results": [
+      {"title": "Unreachable Corp opens new Leeds office", "url": "https://news.example/unreachable-leeds", "content": "Unreachable Corp, a payroll software vendor with roughly 60 staff, opened an office in Leeds.", "score": 0.7}
+    ],
+    "gemini": {
+      "profile": {
+        "what_they_do": {"value": "Payroll software", "confidence": "medium", "sources": ["https://news.example/unreachable-leeds"]},
+        "industry": {"value": "B2B SaaS", "confidence": "medium", "sources": ["https://news.example/unreachable-leeds"]},
+        "size_estimate": {"value": "~60 employees", "confidence": "medium", "sources": ["https://news.example/unreachable-leeds"]},
+        "location": {"value": "Leeds", "confidence": "medium", "sources": ["https://news.example/unreachable-leeds"]},
+        "notable_facts": []
+      }
+    }
+  },
+  "coastlineclinics.example": {
+    "aliases": ["Coastline Clinics"],
+    "search_results": [
+      {"title": "Coastline Clinics – Family health on the coast", "url": "https://coastlineclinics.example", "content": "Coastline Clinics runs three family health clinics in Brighton, Hove and Worthing.", "score": 0.88}
+    ],
+    "page_text": "Coastline Clinics. Three family health clinics. Book an appointment by phone.",
+    "gemini": {
+      "profile": {
+        "what_they_do": {"value": "Family health clinics", "confidence": "high", "sources": ["https://coastlineclinics.example"]},
+        "industry": {"value": "Healthcare", "confidence": "high", "sources": ["https://coastlineclinics.example"]},
+        "size_estimate": {"value": "Unknown", "confidence": "low", "sources": []},
+        "location": {"value": "Brighton, Hove, Worthing", "confidence": "high", "sources": ["https://coastlineclinics.example"]},
+        "notable_facts": [
+          {"fact": "Runs three clinics", "confidence": "high", "sources": ["https://coastlineclinics.example"]}
+        ]
+      }
+    }
   },
   "_default": {
     "search_results": [],
