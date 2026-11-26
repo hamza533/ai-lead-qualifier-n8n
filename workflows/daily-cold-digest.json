@@ -1,0 +1,396 @@
+{
+  "id": "lpDailyDigest001",
+  "name": "LeadPilot – Daily cold-lead digest + retention",
+  "description": null,
+  "active": true,
+  "nodes": [
+    {
+      "id": "d0a7b8c9-6d9e-4f3a-b14c-000000000002",
+      "name": "Every day at 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "d0a7b8c9-6d9e-4f3a-b14c-000000000003",
+      "name": "When run from ops",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "d0a7b8c9-6d9e-4f3a-b14c-000000000001",
+      "name": "Cold leads from the last day",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        240,
+        100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "postgres": {
+          "id": "lpCredLeadsDb001",
+          "name": "LeadPilot DB"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT lead_id, name, company, score, scoring->'criteria' AS criteria\nFROM leads\nWHERE status = 'cold_recorded'\n  AND completed_at > now() - interval '24 hours'\nORDER BY score DESC, completed_at\nLIMIT 50;",
+        "options": {}
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "d0a7b8c9-6d9e-4f3a-b14c-000000000004",
+      "name": "Build digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Daily summary of the cold leads recorded in the last 24 hours (no email was drafted for them).\nconst rows = $input.all().map((i) => i.json).filter((r) => r.lead_id);\nconst lines = rows.map((r) => {\n  const top = (r.criteria || []).slice().sort((a, b) => b.points - a.points)[0];\n  return `• *${r.name || 'Unknown'}* – ${r.company || 'unknown company'} · ${r.score}/100`\n    + (top ? ` · best fit: ${top.name} (${top.reason})` : '');\n});\nconst text = rows.length\n  ? `:snowflake: *Cold leads in the last 24 h: ${rows.length}*\\nRecorded in HubSpot with score and reasons; no email was drafted.\\n${lines.join('\\n')}`\n  : '';\nreturn [{ json: {\n  count: rows.length,\n  post: rows.length > 0,\n  message: { channel: String($env.SLACK_APPROVAL_CHANNEL || ''), text, unfurl_links: false },\n} }];\n"
+      }
+    },
+    {
+      "id": "d0a7b8c9-6d9e-4f3a-b14c-000000000006",
+      "name": "Anything to post?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        680,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d0a7b8c9-6d9e-4f3a-b14c-000000000005",
+              "leftValue": "={{ $json.post }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d0a7b8c9-6d9e-4f3a-b14c-000000000008",
+      "name": "Dry run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        900,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d0a7b8c9-6d9e-4f3a-b14c-000000000007",
+              "leftValue": "={{ String($env.DRY_RUN).toLowerCase() }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "true"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d0a7b8c9-6d9e-4f3a-b14c-000000000009",
+      "name": "Dry run: skip post",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        -100
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "d0a7b8c9-6d9e-4f3a-b14c-000000000010",
+      "name": "Post digest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1120,
+        60
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "slackApi": {
+          "id": "lpCredSlack00001",
+          "name": "Slack Bot"
+        }
+      },
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_BASE_URL }}/chat.postMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.message) }}",
+        "options": {
+          "timeout": 20000
+        },
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi"
+      }
+    },
+    {
+      "id": "d0a7b8c9-6d9e-4f3a-b14c-000000000011",
+      "name": "Check digest reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        60
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "if (!$json.ok) throw new Error(`Slack rejected the digest: ${$json.error || 'unknown error'}`);\nreturn [{ json: { posted: true } }];"
+      }
+    },
+    {
+      "id": "d0a7b8c9-6d9e-4f3a-b14c-000000000012",
+      "name": "Purge expired data",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1540,
+        100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "postgres": {
+          "id": "lpCredLeadsDb001",
+          "name": "LeadPilot DB"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Retention: lead rows (with their personal data) and alerts older than\n-- LEAD_RETENTION_DAYS are deleted. HubSpot keeps the long-term record.\nWITH gone AS (\n  DELETE FROM leads WHERE received_at < now() - make_interval(days => $1::int)\n  RETURNING 1\n), old_alerts AS (\n  DELETE FROM alerts WHERE created_at < now() - make_interval(days => $1::int)\n  RETURNING 1\n)\nSELECT (SELECT count(*) FROM gone) AS leads_purged,\n       (SELECT count(*) FROM old_alerts) AS alerts_purged;",
+        "options": {
+          "queryReplacement": "={{ [Number($env.LEAD_RETENTION_DAYS || 30)] }}"
+        }
+      }
+    },
+    {
+      "id": "d0a7b8c9-6d9e-4f3a-b14c-000000000013",
+      "name": "Digest result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const d = $('Build digest').first().json;\nreturn [{ json: {\n  cold_leads: d.count,\n  posted: $('Check digest reply').isExecuted,\n  dry_run: $('Dry run: skip post').isExecuted,\n  text: d.message.text,\n  leads_purged: Number($json.leads_purged),\n  alerts_purged: Number($json.alerts_purged),\n} }];"
+      }
+    }
+  ],
+  "connections": {
+    "Every day at 08:00": {
+      "main": [
+        [
+          {
+            "node": "Cold leads from the last day",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When run from ops": {
+      "main": [
+        [
+          {
+            "node": "Cold leads from the last day",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cold leads from the last day": {
+      "main": [
+        [
+          {
+            "node": "Build digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build digest": {
+      "main": [
+        [
+          {
+            "node": "Anything to post?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything to post?": {
+      "main": [
+        [
+          {
+            "node": "Dry run?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Purge expired data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dry run?": {
+      "main": [
+        [
+          {
+            "node": "Dry run: skip post",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Post digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dry run: skip post": {
+      "main": [
+        [
+          {
+            "node": "Purge expired data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post digest": {
+      "main": [
+        [
+          {
+            "node": "Check digest reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check digest reply": {
+      "main": [
+        [
+          {
+            "node": "Purge expired data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Purge expired data": {
+      "main": [
+        [
+          {
+            "node": "Digest result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "lpErrorHandler01",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "timezone": "Europe/London",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": {
+    "node:Every day at 08:00": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    }
+  },
+  "meta": {},
+  "nodeGroups": [],
+  "pinData": {},
+  "sourceWorkflowId": null,
+  "tags": [],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

@@ -1,0 +1,596 @@
+{
+  "id": "lpSubCrmUpdate01",
+  "name": "LeadPilot – Sub: CRM update (HubSpot)",
+  "description": null,
+  "active": true,
+  "nodes": [
+    {
+      "id": "b8e5f6a7-6d9e-4f3a-b14c-000000000001",
+      "name": "When called by the pipeline",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "b8e5f6a7-6d9e-4f3a-b14c-000000000002",
+      "name": "Build CRM payloads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Build every HubSpot request body for this lead (CRM v3 objects API).\n//   contact  – upserted by email: an existing contact is updated, never duplicated\n//   company  – found by domain (or by name when there is no company domain), else created\n//   note     – research summary, sources, score reasons and the email / outcome\n//   task     – follow-up in FOLLOW_UP_DAYS after a sent email; due now after a timeout\nconst { lead, enrichment, scoring, decision, email, outcome } = $input.first().json;\nconst now = Date.now();\nconst days = Number($env.FOLLOW_UP_DAYS || 3);\nconst esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst nameParts = String(lead.name || '').trim().split(/\\s+/);\n\nconst reasons = scoring.criteria\n  .map((c) => `${c.name}: ${c.rating}/3 (${c.points} of ${c.weight}) – ${c.reason}`).join('\\n');\nconst contact = {\n  email: lead.email,\n  firstname: nameParts[0] || '',\n  lastname: nameParts.slice(1).join(' '),\n  jobtitle: lead.role || '',\n  company: lead.company || '',\n  ...(lead.website_domain ? { website: lead.website_domain } : {}),\n  ai_lead_score: String(scoring.score),\n  ai_lead_tier: scoring.tier,\n  ai_score_reasons: `${scoring.score}/100 (${scoring.tier})\\n${reasons}`,\n  ai_last_processed: String(now),\n};\n\nconst companySearch = lead.website_domain\n  ? { propertyName: 'domain', value: lead.website_domain }\n  : lead.company ? { propertyName: 'name', value: lead.company } : null;\nconst company = companySearch ? {\n  search: { filterGroups: [{ filters: [{ ...companySearch, operator: 'EQ' }] }],\n    properties: ['name', 'domain'], limit: 1 },\n  create: { properties: { name: lead.company || lead.website_domain,\n    ...(lead.website_domain ? { domain: lead.website_domain } : {}) } },\n} : null;\n\nconst profile = enrichment.profile || {};\nconst facts = [['What they do', profile.what_they_do], ['Industry', profile.industry],\n  ['Size', profile.size_estimate], ['Location', profile.location]]\n  .filter(([, f]) => f && f.value !== 'Unknown').map(([label, f]) => `${label}: ${f.value} (${f.confidence})`)\n  .concat((profile.notable_facts || []).map((f) => `${f.fact} (${f.confidence})`));\nconst outcomeText = {\n  approved: `Email sent, approved by ${decision?.approver}.`,\n  approved_edited: `Email sent with edits by ${decision?.approver}.`,\n  rejected: `Reply rejected by ${decision?.approver}: ${decision?.reject_reason}. No email sent.`,\n  timeout: 'No decision within the approval window. No email sent; manual follow-up needed.',\n  cold: 'Cold lead: no email drafted.',\n}[outcome];\nconst noteBody = [\n  `<p><strong>LeadPilot: ${scoring.score}/100 ${esc(scoring.tier.toUpperCase())}</strong> – ${esc(outcomeText)}</p>`,\n  `<p><strong>Score reasons</strong><br>${esc(reasons).replace(/\\n/g, '<br>')}</p>`,\n  `<p><strong>Research</strong> (${esc(enrichment.enrichment_status)}${enrichment.enrichment_note ? `: ${esc(enrichment.enrichment_note)}` : ''})<br>`\n    + `${facts.map(esc).join('<br>') || 'Nothing found'}</p>`,\n  `<p><strong>Sources</strong><br>${(enrichment.sources || []).map((s) => `<a href=\"${esc(s.url)}\">${esc(s.url)}</a>`).join('<br>') || 'none'}</p>`,\n  `<p><strong>Their message</strong><br>${esc(lead.message).replace(/\\n/g, '<br>')}</p>`,\n  email ? `<p><strong>Email sent to ${esc(email.to)}</strong>${email.redirected_from ? ` (demo redirect for ${esc(email.redirected_from)})` : ''}<br>`\n    + `Subject: ${esc(email.subject)}<br>${esc(email.body).replace(/\\n/g, '<br>')}</p>` : '',\n].join('');\n\nconst taskFor = {\n  approved: { subject: `Follow up with ${lead.name} (${lead.company || lead.website_domain})`, due: now + days * 86400000, priority: scoring.tier === 'hot' ? 'HIGH' : 'MEDIUM' },\n  approved_edited: { subject: `Follow up with ${lead.name} (${lead.company || lead.website_domain})`, due: now + days * 86400000, priority: scoring.tier === 'hot' ? 'HIGH' : 'MEDIUM' },\n  timeout: { subject: `Manual follow-up: ${lead.name} (${lead.company || lead.website_domain}) – approval timed out`, due: now, priority: 'HIGH' },\n}[outcome];\nconst task = taskFor ? { properties: {\n  hs_timestamp: String(taskFor.due),\n  hs_task_subject: taskFor.subject.slice(0, 250),\n  hs_task_body: `${outcomeText} Score ${scoring.score}/100 (${scoring.tier}). Lead ${lead.lead_id}.`,\n  hs_task_status: 'NOT_STARTED',\n  hs_task_priority: taskFor.priority,\n  hs_task_type: 'EMAIL',\n} } : null;\n\nreturn [{ json: {\n  lead_id: lead.lead_id,\n  outcome,\n  contact: { inputs: [{ idProperty: 'email', id: lead.email, properties: contact }] },\n  company,\n  note: { properties: { hs_timestamp: String(now), hs_note_body: noteBody } },\n  task,\n} }];\n"
+      }
+    },
+    {
+      "id": "b8e5f6a7-6d9e-4f3a-b14c-000000000004",
+      "name": "Dry run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b8e5f6a7-6d9e-4f3a-b14c-000000000003",
+              "leftValue": "={{ String($env.DRY_RUN).toLowerCase() }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "true"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b8e5f6a7-6d9e-4f3a-b14c-000000000005",
+      "name": "Dry-run CRM",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        -200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// DRY_RUN: record the HubSpot requests instead of sending them.\nconst plan = $('Build CRM payloads').first().json;\nconst dry_actions = [\n  { type: 'hubspot.contacts.upsert', body: plan.contact },\n  plan.company && { type: 'hubspot.companies.find_or_create', body: plan.company },\n  { type: 'hubspot.notes.create', body: plan.note },\n  plan.task && { type: 'hubspot.tasks.create', body: plan.task },\n].filter(Boolean);\nreturn [{ json: { dry_actions } }];"
+      }
+    },
+    {
+      "id": "b8e5f6a7-6d9e-4f3a-b14c-000000000006",
+      "name": "Upsert contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "lpCredHubspot001",
+          "name": "HubSpot"
+        }
+      },
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.HUBSPOT_BASE_URL }}/crm/v3/objects/contacts/batch/upsert",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Build CRM payloads').first().json.contact) }}",
+        "options": {
+          "timeout": 20000
+        },
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken"
+      }
+    },
+    {
+      "id": "b8e5f6a7-6d9e-4f3a-b14c-000000000008",
+      "name": "Has company?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b8e5f6a7-6d9e-4f3a-b14c-000000000007",
+              "leftValue": "={{ Boolean($('Build CRM payloads').first().json.company) }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b8e5f6a7-6d9e-4f3a-b14c-000000000009",
+      "name": "Find company",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "lpCredHubspot001",
+          "name": "HubSpot"
+        }
+      },
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.HUBSPOT_BASE_URL }}/crm/v3/objects/companies/search",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Build CRM payloads').first().json.company.search) }}",
+        "options": {
+          "timeout": 20000
+        },
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken"
+      }
+    },
+    {
+      "id": "b8e5f6a7-6d9e-4f3a-b14c-000000000011",
+      "name": "Company found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b8e5f6a7-6d9e-4f3a-b14c-000000000010",
+              "leftValue": "={{ $json.total }}",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              },
+              "rightValue": 0
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b8e5f6a7-6d9e-4f3a-b14c-000000000012",
+      "name": "Create company",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "lpCredHubspot001",
+          "name": "HubSpot"
+        }
+      },
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.HUBSPOT_BASE_URL }}/crm/v3/objects/companies",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Build CRM payloads').first().json.company.create) }}",
+        "options": {
+          "timeout": 20000
+        },
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken"
+      }
+    },
+    {
+      "id": "b8e5f6a7-6d9e-4f3a-b14c-000000000013",
+      "name": "Associate contact and company",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "lpCredHubspot001",
+          "name": "HubSpot"
+        }
+      },
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $env.HUBSPOT_BASE_URL }}/crm/v4/objects/contact/{{ $('Upsert contact').first().json.results[0].id }}/associations/default/company/{{ $('Create company').isExecuted ? $('Create company').first().json.id : $('Find company').first().json.results[0].id }}",
+        "sendBody": false,
+        "options": {
+          "timeout": 20000
+        },
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken"
+      }
+    },
+    {
+      "id": "b8e5f6a7-6d9e-4f3a-b14c-000000000014",
+      "name": "Add associations",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Link the note and task to the contact (and company, when there is one).\nconst plan = $('Build CRM payloads').first().json;\nconst upsert = $('Upsert contact').first().json;\nif (!upsert.results || !upsert.results.length) {\n  throw new Error(`HubSpot contact upsert returned no record: ${JSON.stringify(upsert.errors || upsert).slice(0, 300)}`);\n}\nconst contactId = upsert.results[0].id;\nlet companyId = null;\nif ($('Create company').isExecuted) companyId = $('Create company').first().json.id;\nelse if ($('Find company').isExecuted && $('Find company').first().json.total > 0) {\n  companyId = $('Find company').first().json.results[0].id;\n}\nconst link = (id, typeId) => ({ to: { id }, types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: typeId }] });\nreturn [{ json: {\n  note: { ...plan.note, associations: [link(contactId, 202), ...(companyId ? [link(companyId, 190)] : [])] },\n  task: plan.task ? { ...plan.task, associations: [link(contactId, 204), ...(companyId ? [link(companyId, 192)] : [])] } : null,\n} }];"
+      }
+    },
+    {
+      "id": "b8e5f6a7-6d9e-4f3a-b14c-000000000015",
+      "name": "Create note",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2200,
+        100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "lpCredHubspot001",
+          "name": "HubSpot"
+        }
+      },
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.HUBSPOT_BASE_URL }}/crm/v3/objects/notes",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.note) }}",
+        "options": {
+          "timeout": 20000
+        },
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken"
+      }
+    },
+    {
+      "id": "b8e5f6a7-6d9e-4f3a-b14c-000000000017",
+      "name": "Task needed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2420,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b8e5f6a7-6d9e-4f3a-b14c-000000000016",
+              "leftValue": "={{ Boolean($('Add associations').first().json.task) }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b8e5f6a7-6d9e-4f3a-b14c-000000000018",
+      "name": "Create task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2640,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "lpCredHubspot001",
+          "name": "HubSpot"
+        }
+      },
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.HUBSPOT_BASE_URL }}/crm/v3/objects/tasks",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Add associations').first().json.task) }}",
+        "options": {
+          "timeout": 20000
+        },
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotAppToken"
+      }
+    },
+    {
+      "id": "b8e5f6a7-6d9e-4f3a-b14c-000000000019",
+      "name": "CRM result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2860,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Collect the HubSpot record IDs (or, with DRY_RUN, the requests that were skipped).\nconst plan = $('Build CRM payloads').first().json;\nconst seen = (name) => $(name).isExecuted;\nif (seen('Dry-run CRM')) {\n  return [{ json: { dry_run: true, outcome: plan.outcome,\n    dry_actions: $('Dry-run CRM').first().json.dry_actions } }];\n}\nconst contact = $('Upsert contact').first().json.results[0];\nlet companyId = null;\nif (seen('Create company')) companyId = $('Create company').first().json.id;\nelse if (seen('Find company') && $('Find company').first().json.total > 0) {\n  companyId = $('Find company').first().json.results[0].id;\n}\nreturn [{ json: {\n  dry_run: false,\n  outcome: plan.outcome,\n  contact_id: contact.id,\n  contact_created: Boolean(contact.new),\n  company_id: companyId,\n  company_created: seen('Create company'),\n  note_id: $('Create note').first().json.id,\n  task_id: seen('Create task') ? $('Create task').first().json.id : null,\n} }];\n"
+      }
+    }
+  ],
+  "connections": {
+    "When called by the pipeline": {
+      "main": [
+        [
+          {
+            "node": "Build CRM payloads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build CRM payloads": {
+      "main": [
+        [
+          {
+            "node": "Dry run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dry run?": {
+      "main": [
+        [
+          {
+            "node": "Dry-run CRM",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Upsert contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dry-run CRM": {
+      "main": [
+        [
+          {
+            "node": "CRM result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert contact": {
+      "main": [
+        [
+          {
+            "node": "Has company?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has company?": {
+      "main": [
+        [
+          {
+            "node": "Find company",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Add associations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find company": {
+      "main": [
+        [
+          {
+            "node": "Company found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Company found?": {
+      "main": [
+        [
+          {
+            "node": "Associate contact and company",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create company",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create company": {
+      "main": [
+        [
+          {
+            "node": "Associate contact and company",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Associate contact and company": {
+      "main": [
+        [
+          {
+            "node": "Add associations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add associations": {
+      "main": [
+        [
+          {
+            "node": "Create note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create note": {
+      "main": [
+        [
+          {
+            "node": "Task needed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Task needed?": {
+      "main": [
+        [
+          {
+            "node": "Create task",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "CRM result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create task": {
+      "main": [
+        [
+          {
+            "node": "CRM result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "lpErrorHandler01",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "timezone": "Europe/London",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "meta": {},
+  "nodeGroups": [],
+  "pinData": {},
+  "sourceWorkflowId": null,
+  "tags": [],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

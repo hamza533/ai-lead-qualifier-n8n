@@ -173,17 +173,6 @@
       }
     },
     {
-      "id": "e5b2c3d4-6d9e-4f3a-b14c-000000000004",
-      "name": "Cold: CRM + digest (M5)",
-      "type": "n8n-nodes-base.noOp",
-      "typeVersion": 1,
-      "position": [
-        1680,
-        200
-      ],
-      "parameters": {}
-    },
-    {
       "id": "e5b2c3d4-6d9e-4f3a-b14c-000000000005",
       "name": "Bundle for draft",
       "type": "n8n-nodes-base.code",
@@ -555,15 +544,360 @@
       }
     },
     {
-      "id": "e5b2c3d4-6d9e-4f3a-b14c-000000000019",
-      "name": "Next: send + CRM (M5)",
-      "type": "n8n-nodes-base.noOp",
-      "typeVersion": 1,
+      "id": "c9f6a7b8-6d9e-4f3a-b14c-000000000003",
+      "name": "Send email?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
       "position": [
         3780,
         -100
       ],
-      "parameters": {}
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c9f6a7b8-6d9e-4f3a-b14c-000000000002",
+              "leftValue": "={{ ['approved', 'approved_edited'].includes($('Read decision').first().json.outcome) }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c9f6a7b8-6d9e-4f3a-b14c-000000000004",
+      "name": "Prepare email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4000,
+        -100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Prepare the approved email. In DEMO_MODE, mail only goes to DEMO_EMAIL_ALLOWLIST\n// (addresses or @domains); anything else is redirected to the first allow-listed address,\n// with the real recipient shown in the subject, so a demo can never email a real lead.\nconst lead = $('Lead accepted').first().json.lead;\nconst decision = $('Read decision').first().json;\nconst setting = (key, fallback = '') => String($env[key] ?? fallback).trim();\nconst demo = setting('DEMO_MODE').toLowerCase() === 'true';\nconst allowlist = setting('DEMO_EMAIL_ALLOWLIST').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);\n\nlet to = lead.email;\nlet subject = decision.subject;\nlet redirected_from = null;\nif (demo) {\n  const allowed = allowlist.some((entry) => entry.startsWith('@')\n    ? lead.email.endsWith(entry) : lead.email === entry);\n  if (!allowed) {\n    const inbox = allowlist.find((entry) => !entry.startsWith('@'));\n    if (!inbox) throw new Error('DEMO_MODE is on but DEMO_EMAIL_ALLOWLIST has no address to redirect to');\n    redirected_from = lead.email;\n    to = inbox;\n    subject = `[demo for ${lead.email}] ${subject}`;\n  }\n}\nreturn [{ json: {\n  from: setting('EMAIL_FROM'),\n  to,\n  subject,\n  body: decision.body,\n  redirected_from,\n} }];\n"
+      }
+    },
+    {
+      "id": "c9f6a7b8-6d9e-4f3a-b14c-000000000006",
+      "name": "Dry run? (email)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4110,
+        -100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c9f6a7b8-6d9e-4f3a-b14c-000000000005",
+              "leftValue": "={{ String($env.DRY_RUN).toLowerCase() }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "true"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c9f6a7b8-6d9e-4f3a-b14c-000000000007",
+      "name": "Dry-run email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4220,
+        -200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// DRY_RUN: record the email instead of sending it.\nreturn [{ json: { dry_action: { type: 'smtp.send', body: $json } } }];"
+      }
+    },
+    {
+      "id": "c9f6a7b8-6d9e-4f3a-b14c-000000000001",
+      "name": "Send email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        4220,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "smtp": {
+          "id": "lpCredSmtp000001",
+          "name": "SMTP"
+        }
+      },
+      "parameters": {
+        "fromEmail": "={{ $json.from }}",
+        "toEmail": "={{ $json.to }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "text",
+        "text": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      }
+    },
+    {
+      "id": "c9f6a7b8-6d9e-4f3a-b14c-000000000008",
+      "name": "Record email",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        4440,
+        -100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "postgres": {
+          "id": "lpCredLeadsDb001",
+          "name": "LeadPilot DB"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET\n  sent_email = $2::jsonb,\n  email_sent_at = CASE WHEN $3::boolean THEN now() END,\n  dry_run_actions = dry_run_actions || $4::jsonb,\n  updated_at = now()\nWHERE lead_id = $1\nRETURNING lead_id;",
+        "options": {
+          "queryReplacement": "={{ [$('Lead accepted').first().json.lead.lead_id, JSON.stringify($('Prepare email').first().json), !$('Dry-run email').isExecuted, $('Dry-run email').isExecuted ? JSON.stringify([$('Dry-run email').first().json.dry_action]) : '[]'] }}"
+        }
+      }
+    },
+    {
+      "id": "c9f6a7b8-6d9e-4f3a-b14c-000000000009",
+      "name": "Bundle for CRM",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4660,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Everything the CRM step needs, for every path: sent, rejected, timed out or cold.\nconst seen = (name) => $(name).isExecuted;\nconst decision = seen('Read decision') ? $('Read decision').first().json : null;\nconst email = seen('Record email') ? $('Prepare email').first().json : null;\nreturn [{ json: {\n  lead: $('Lead accepted').first().json.lead,\n  enrichment: $('Enrich company').first().json,\n  scoring: $('Score lead').first().json,\n  decision,\n  email,\n  outcome: decision ? decision.outcome : 'cold',\n} }];\n"
+      }
+    },
+    {
+      "id": "c9f6a7b8-6d9e-4f3a-b14c-000000000010",
+      "name": "Update CRM",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        4880,
+        100
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "lpSubCrmUpdate01"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "c9f6a7b8-6d9e-4f3a-b14c-000000000011",
+      "name": "Finish",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5100,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Final status, and the Slack update that replaces the approval request with the outcome.\nconst bundle = $('Bundle for CRM').first().json;\nconst crm = $input.first().json;\nconst lead = bundle.lead;\nconst scoring = bundle.scoring;\nconst decision = bundle.decision;\nconst email = bundle.email;\nconst status = {\n  approved: 'approved_sent', approved_edited: 'approved_sent', rejected: 'rejected_by_reviewer',\n  timeout: 'needs_manual_follow_up', cold: 'cold_recorded',\n}[bundle.outcome];\n\nconst slackSafe = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst crmText = crm.dry_run ? 'HubSpot update skipped (dry run)' : 'HubSpot updated';\nconst sentTo = email ? `email sent to ${email.to}${email.redirected_from ? ` (demo redirect for ${email.redirected_from})` : ''}` : '';\nconst line = {\n  approved: `:white_check_mark: Approved by ${decision?.approver} · ${sentTo} · ${crmText}`,\n  approved_edited: `:pencil2: Approved with edits by ${decision?.approver} · ${sentTo} · ${crmText}`,\n  rejected: `:x: Rejected by ${decision?.approver}: ${decision?.reject_reason} · no email sent · ${crmText}`,\n  timeout: `:hourglass: No decision in time · no email sent · manual follow-up task created · ${crmText}`,\n  cold: '',\n}[bundle.outcome];\n\nlet slack = null;\nconst rec = $('Record approval request').isExecuted ? $('Record approval request').first().json : null;\nconst ts = $('Check Slack reply').isExecuted ? $('Check Slack reply').first().json.ts\n  : $('Dry-run Slack post').isExecuted ? $('Dry-run Slack post').first().json.ts : null;\nconst channel = $('Check Slack reply').isExecuted ? $('Check Slack reply').first().json.channel\n  : $('Dry-run Slack post').isExecuted ? $('Dry-run Slack post').first().json.channel : null;\nif (rec && ts && bundle.outcome !== 'cold') {\n  const who = `${lead.name} – ${lead.company || lead.website_domain || 'unknown company'}`;\n  slack = {\n    channel, ts,\n    text: `${who} (${scoring.score}/100 ${scoring.tier.toUpperCase()}): ${line}`,\n    blocks: [\n      { type: 'section', text: { type: 'mrkdwn',\n        text: `*${slackSafe(who)}* · ${scoring.score}/100 ${scoring.tier.toUpperCase()}\\n${slackSafe(line)}` } },\n      ...(email ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: `Subject: ${slackSafe(email.subject)}` }] }] : []),\n    ],\n  };\n}\nreturn [{ json: {\n  lead_id: lead.lead_id, status, outcome: bundle.outcome, slack,\n  crm: crm.dry_run ? { dry_run: true } : crm,\n  dry_actions: crm.dry_run ? crm.dry_actions : [],\n} }];\n"
+      }
+    },
+    {
+      "id": "c9f6a7b8-6d9e-4f3a-b14c-000000000013",
+      "name": "Slack update?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5320,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c9f6a7b8-6d9e-4f3a-b14c-000000000012",
+              "leftValue": "={{ Boolean($json.slack) }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c9f6a7b8-6d9e-4f3a-b14c-000000000015",
+      "name": "Dry run? (Slack update)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5540,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c9f6a7b8-6d9e-4f3a-b14c-000000000014",
+              "leftValue": "={{ String($env.DRY_RUN).toLowerCase() }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "true"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c9f6a7b8-6d9e-4f3a-b14c-000000000016",
+      "name": "Dry-run Slack update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5760,
+        -100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [{ json: { dry_action: { type: 'slack.chat.update', body: $json.slack } } }];"
+      }
+    },
+    {
+      "id": "c9f6a7b8-6d9e-4f3a-b14c-000000000017",
+      "name": "Update Slack message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5760,
+        60
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "slackApi": {
+          "id": "lpCredSlack00001",
+          "name": "Slack Bot"
+        }
+      },
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_BASE_URL }}/chat.update",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.slack) }}",
+        "options": {
+          "timeout": 20000
+        },
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi"
+      }
+    },
+    {
+      "id": "c9f6a7b8-6d9e-4f3a-b14c-000000000018",
+      "name": "Check update reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5980,
+        60
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "if (!$json.ok) throw new Error(`Slack rejected the outcome update: ${$json.error || 'unknown error'}`);\nreturn [{ json: { dry_action: null } }];"
+      }
+    },
+    {
+      "id": "c9f6a7b8-6d9e-4f3a-b14c-000000000019",
+      "name": "Record outcome",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        6200,
+        100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "postgres": {
+          "id": "lpCredLeadsDb001",
+          "name": "LeadPilot DB"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET\n  status = $2,\n  crm = $3::jsonb,\n  completed_at = now(),\n  dry_run_actions = dry_run_actions || $4::jsonb,\n  updated_at = now()\nWHERE lead_id = $1\nRETURNING lead_id, status;",
+        "options": {
+          "queryReplacement": "={{ [$('Lead accepted').first().json.lead.lead_id, $('Finish').first().json.status, JSON.stringify($('Finish').first().json.crm), JSON.stringify([...$('Finish').first().json.dry_actions, ...($('Dry-run Slack update').isExecuted ? [$('Dry-run Slack update').first().json.dry_action] : [])]) ] }}"
+        }
+      }
     }
   ],
   "connections": {
@@ -644,7 +978,7 @@
         ],
         [
           {
-            "node": "Cold: CRM + digest (M5)",
+            "node": "Bundle for CRM",
             "type": "main",
             "index": 0
           }
@@ -790,7 +1124,189 @@
       "main": [
         [
           {
-            "node": "Next: send + CRM (M5)",
+            "node": "Send email?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send email?": {
+      "main": [
+        [
+          {
+            "node": "Prepare email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Bundle for CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare email": {
+      "main": [
+        [
+          {
+            "node": "Dry run? (email)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dry run? (email)": {
+      "main": [
+        [
+          {
+            "node": "Dry-run email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dry-run email": {
+      "main": [
+        [
+          {
+            "node": "Record email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send email": {
+      "main": [
+        [
+          {
+            "node": "Record email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record email": {
+      "main": [
+        [
+          {
+            "node": "Bundle for CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bundle for CRM": {
+      "main": [
+        [
+          {
+            "node": "Update CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update CRM": {
+      "main": [
+        [
+          {
+            "node": "Finish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finish": {
+      "main": [
+        [
+          {
+            "node": "Slack update?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack update?": {
+      "main": [
+        [
+          {
+            "node": "Dry run? (Slack update)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Record outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dry run? (Slack update)": {
+      "main": [
+        [
+          {
+            "node": "Dry-run Slack update",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Slack message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dry-run Slack update": {
+      "main": [
+        [
+          {
+            "node": "Record outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Slack message": {
+      "main": [
+        [
+          {
+            "node": "Check update reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check update reply": {
+      "main": [
+        [
+          {
+            "node": "Record outcome",
             "type": "main",
             "index": 0
           }

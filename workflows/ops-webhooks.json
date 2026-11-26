@@ -63,6 +63,30 @@
                 ],
                 "combinator": "and"
               }
+            },
+            {
+              "outputKey": "run_digest",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "e1b8c9d0-6d9e-4f3a-b14c-000000000001",
+                    "leftValue": "={{ $json.body.action }}",
+                    "rightValue": "run_digest",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
             }
           ]
         },
@@ -126,10 +150,53 @@
       ],
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.stringify({ ok: false, error: 'unknown action', actions: ['run_reminders'] }) }}",
+        "responseBody": "={{ JSON.stringify({ ok: false, error: 'unknown action', actions: ['run_reminders', 'run_digest'] }) }}",
         "options": {
           "responseCode": 400
         }
+      }
+    },
+    {
+      "id": "e1b8c9d0-6d9e-4f3a-b14c-000000000002",
+      "name": "Run daily digest",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        480,
+        60
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "lpDailyDigest001"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      }
+    },
+    {
+      "id": "e1b8c9d0-6d9e-4f3a-b14c-000000000003",
+      "name": "Respond digest",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        720,
+        60
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, action: 'run_digest', ...$json }) }}",
+        "options": {}
       }
     }
   ],
@@ -156,6 +223,13 @@
         ],
         [
           {
+            "node": "Run daily digest",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
             "node": "Respond unknown action",
             "type": "main",
             "index": 0
@@ -168,6 +242,17 @@
         [
           {
             "node": "Respond done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run daily digest": {
+      "main": [
+        [
+          {
+            "node": "Respond digest",
             "type": "main",
             "index": 0
           }

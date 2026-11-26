@@ -1,7 +1,7 @@
 # PROGRESS – handoff log
 
 ## Status
-**Current milestone:** M5 – Send + CRM sub-workflow (next)
+**Current milestone:** M6 – Errors + reliability (next)
 
 | # | Milestone | Status |
 |---|---|---|
@@ -10,7 +10,7 @@
 | M2 | Enrichment sub-workflow | done (merged to `main` locally) |
 | M3 | Scoring sub-workflow | done (merged to `main` locally) |
 | M4 | Draft + Slack approval | done (merged to `main` locally) |
-| M5 | Send + CRM sub-workflow | not started |
+| M5 | Send + CRM sub-workflow | done (merged to `main` locally) |
 | M6 | Errors + reliability | not started |
 | M7 | Evaluation | not started |
 | M8 | Production profile + docs | not started |
@@ -26,7 +26,9 @@
 
 **Done in M4:** `sub-draft` (style guide + message + research → Gemini draft → code checks: forbidden phrases, unsupported figures, unread sources, booking link), approval request in Slack (HTTP) with a "Review and decide" button to an n8n Wait-node form (approve / approve with edits / reject, reviewer name), timeout → `needs_manual_follow_up`, threaded reminders (`approval-reminders`), ops webhook, eval auto-approve. Test stack fakes Slack/HubSpot/SMTP. See DECISIONS 28–35.
 
-**Next step:** M5 on `feat/m5-send-crm`: send the approved email (SMTP, demo allow-list), `sub-crm-update` (HubSpot contact upsert by email, company, association, ai_* properties, note, follow-up task), Slack message update with the outcome, cold path, daily cold digest + retention purge, `make hubspot-setup`.
+**Done in M5:** approved email via SMTP (demo allow-list redirect), `sub-crm-update` (HubSpot v3: contact upsert by email, company by domain/name, association, `ai_*` properties, note, follow-up task; DRY_RUN records the calls), Slack message updated with the outcome, final statuses, cold path, `daily-cold-digest` (digest + retention purge, also via ops `run_digest`), `make hubspot-setup`. Migration 005 fixes a column clash found by the e2e tests. 9 send/CRM e2e tests, 2 dry-run tests.
+
+**Next step:** M6 on `feat/m6-errors`: `error-handler` workflow (alert to the Slack alerts channel with execution link and masked email; lead → `error_recoverable`), replay of recoverable leads via the ops webhook, CI running both e2e passes.
 
 ## Blockers / open questions
 - **No GitHub remote yet.** Milestones are merged locally with `--no-ff`; CI runs once the repo is pushed. Creating the public repo needs the owner's OK.
@@ -54,3 +56,4 @@ Expected: `n8n ready at http://localhost:5680`, `created/updated 6 credentials`,
 - 2026-11-26 – Claude Code – M2 enrichment: sub-enrich with grounding guard and graceful degradation, usage tracking; 34 e2e tests green on a fresh rebuild.
 - 2026-11-26 – Claude Code – M3 scoring: sub-score with deterministic Compute score node, maths unit-tested on the exported node code, Code-node syntax lint; 43 e2e tests.
 - 2026-11-26 – Claude Code – M4 draft + approval: sub-draft with code checks, Slack request + Wait-node form (approve/edit/reject/timeout), threaded reminders, ops webhook, eval auto-approve; unit tests run the exported Check draft / Read decision code; 11 approval e2e tests.
+- 2026-11-27 – Claude Code – M5 send + CRM: SMTP send with demo redirect, sub-crm-update (HubSpot v3), Slack outcome update, cold path, daily digest + purge, hubspot-setup; fixed the sent-email column clash; 9 + 2 dry-run e2e tests.
