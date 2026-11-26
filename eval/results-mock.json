@@ -1,0 +1,180 @@
+{
+  "run": {
+    "id": "06a3da39",
+    "mock": true,
+    "leads": 6,
+    "finished": "2026-11-26 20:30 UTC",
+    "model": "gemini-2.5-flash",
+    "n8n_version": "2.49.6",
+    "fingerprint": "df508eb44c3471c0",
+    "prices_checked": "2026-11-27"
+  },
+  "summary": {
+    "tier_accuracy": 1.0,
+    "tier_correct": 4,
+    "tier_total": 4,
+    "confusion": {
+      "hot": {
+        "hot": 1,
+        "warm": 0,
+        "cold": 0
+      },
+      "warm": {
+        "hot": 0,
+        "warm": 2,
+        "cold": 0
+      },
+      "cold": {
+        "hot": 0,
+        "warm": 0,
+        "cold": 1
+      }
+    },
+    "spam_and_duplicates_handled": "2/2",
+    "grounding": {
+      "drafts_judged": 3,
+      "drafts_fully_grounded": 2,
+      "claims": 4,
+      "claims_supported": 3,
+      "claims_supported_ratio": 0.75
+    },
+    "seconds_to_review_p50": 3.2,
+    "seconds_to_review_p95": 3.3,
+    "avg_llm_input_tokens": 735,
+    "avg_llm_output_tokens": 367,
+    "avg_tavily_credits": 1.75,
+    "est_paid_cost_per_lead_usd": 0.0151,
+    "errors": []
+  },
+  "cases": [
+    {
+      "id": "mock-hot",
+      "case": "normal",
+      "expected": "hot",
+      "lead_id": "ld_85689175e37b",
+      "status": "approved_sent",
+      "actual": "hot",
+      "ok": true,
+      "score": 87,
+      "enrichment_status": "ok",
+      "tokens_in": 966,
+      "tokens_out": 570,
+      "tavily_credits": 2,
+      "seconds_to_review": 3.1,
+      "seconds_total": 3.6,
+      "flags": [],
+      "judge": {
+        "claims": [
+          {
+            "claim": "Wants a customer portal for shipment tracking by Q2",
+            "supported": true,
+            "evidence": "lead message"
+          },
+          {
+            "claim": "Launched a cold-chain service this year",
+            "supported": true,
+            "evidence": "https://news.example/harbor-cold-chain"
+          }
+        ],
+        "all_grounded": true,
+        "judged": true
+      }
+    },
+    {
+      "id": "mock-warm-personal",
+      "case": "personal_email",
+      "expected": "warm",
+      "lead_id": "ld_53e117fb79bf",
+      "status": "approved_sent",
+      "actual": "warm",
+      "ok": true,
+      "score": 60,
+      "enrichment_status": "partial",
+      "tokens_in": 767,
+      "tokens_out": 405,
+      "tavily_credits": 2,
+      "seconds_to_review": 3.3,
+      "seconds_total": 3.8,
+      "flags": [
+        "forbidden phrase: \"we have helped companies like yours\"",
+        "figure not found in the message or research: \"30%\"",
+        "cites a page that was not researched: https://invented.example/case-study",
+        "booking link was missing and has been added"
+      ],
+      "judge": {
+        "claims": [
+          {
+            "claim": "Runs three clinics",
+            "supported": true,
+            "evidence": "https://coastlineclinics.example"
+          },
+          {
+            "claim": "Helped companies like yours cut no-shows by 30%",
+            "supported": false,
+            "evidence": "not in the message or research"
+          }
+        ],
+        "all_grounded": false,
+        "judged": true
+      }
+    },
+    {
+      "id": "mock-warm-unreachable",
+      "case": "unreachable_website",
+      "expected": "warm",
+      "lead_id": "ld_931689122690",
+      "status": "approved_sent",
+      "actual": "warm",
+      "ok": true,
+      "score": 48,
+      "enrichment_status": "partial",
+      "tokens_in": 762,
+      "tokens_out": 373,
+      "tavily_credits": 2,
+      "seconds_to_review": 3.2,
+      "seconds_total": 3.7,
+      "flags": [],
+      "judge": {
+        "claims": [],
+        "all_grounded": true,
+        "judged": true
+      }
+    },
+    {
+      "id": "mock-cold",
+      "case": "vague",
+      "expected": "cold",
+      "lead_id": "ld_e334fd7702eb",
+      "status": "cold_recorded",
+      "actual": "cold",
+      "ok": true,
+      "score": 33,
+      "enrichment_status": "failed",
+      "tokens_in": 444,
+      "tokens_out": 119,
+      "tavily_credits": 1,
+      "seconds_to_review": null,
+      "seconds_total": 2.9,
+      "flags": [],
+      "judge": {
+        "claims": [],
+        "all_grounded": true,
+        "judged": false
+      }
+    },
+    {
+      "id": "mock-dup",
+      "case": "duplicate",
+      "expected": "duplicate",
+      "actual": "duplicate",
+      "ok": true
+    },
+    {
+      "id": "mock-spam",
+      "case": "spam",
+      "expected": "spam",
+      "actual": "spam",
+      "ok": true
+    }
+  ]
+}
