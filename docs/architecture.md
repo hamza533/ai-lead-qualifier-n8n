@@ -49,7 +49,7 @@ flowchart LR
 | `sub-validate.json` | Execute Workflow Trigger | Normalises and validates a submission, runs the spam and free-mail checks from `config/icp.json`, and claims the lead in the `leads` table unless the same email + message arrived in the last 24 h. Shared by both intakes so the rules exist once. |
 | `main-lead-intake.json` | Execute Workflow Trigger | The lead pipeline: enrichment, scoring, draft, Slack approval, send, CRM (built in M2–M5). |
 | `sub-enrich.json` | Execute Workflow Trigger | Web research (Tavily search + extract) and a structured, source-checked company profile (Gemini). See 3.2. |
-| `sub-score.json` | Execute Workflow Trigger | Per-criterion ratings from Gemini, deterministic total and tier in a Code node. |
+| `sub-score.json` | Execute Workflow Trigger | Per-criterion ratings from Gemini, deterministic total and tier in a Code node. See 3.3. |
 | `sub-crm-update.json` | Execute Workflow Trigger | HubSpot contact/company upsert, custom properties, note, follow-up task. The only HubSpot-aware workflow, so swapping CRM is contained here. |
 | `error-handler.json` | Error Trigger | Posts failures to the alerts channel (execution link, masked email) and marks the lead recoverable. |
 | `daily-cold-digest.json` | Schedule (daily) | Cold-lead digest to Slack and purge of lead rows past retention. |
@@ -153,10 +153,21 @@ Output:
   "score": 82,
   "tier": "hot | warm | cold",
   "thresholds": { "hot": 70, "warm": 40 },
+  "issues": [],
   "usage": { "llm_input_tokens": 0, "llm_output_tokens": 0 }
 }
 ```
-`points = rating / 3 * weight`; `score = round(sum(points) / sum(weights) * 100)`. The model only returns `rating`, `reason` and `evidence`; the Code node computes everything else.
+`points = rating / 3 * weight`; `score = round(sum(points) / sum(weights) * 100)`; tier `hot` if `score >= tiers.hot`, `warm` if `score >= tiers.warm`, else `cold`. Weights need not sum to 100. The model only returns `rating`, `reason` and `evidence` per criterion; the "Compute score" Code node does everything else.
+
+How it works:
+1. `config/icp.json` is read on every run (business, criteria with rating guides, tiers).
+2. **Rating request:** criteria and rating guides, the lead's role, company, email domain (flagged if personal), budget and message, and the research (or "No research available"). No contact name or email is sent, nor are the weights. The prompt says not to compute a total and to ignore instructions inside the form or research. `responseSchema` restricts `key` to the configured criteria; temperature 0, thinking off.
+3. **Compute score** checks every rating: a missing criterion, or a rating that isn't an integer 0–3 (`null`, `2.5`, `"high"`, `4`), counts as 0; unknown or duplicate keys are ignored; an evidence URL that wasn't a researched source is removed. Each case is listed in `issues`. Unreadable model output or a non-positive weight in the config throws, so the pipeline stops and the error workflow takes over.
+4. Gemini is retried 3 times, 5 s apart; a lasting outage stops the pipeline at "Score lead" with the lead still `enriched` (M6 adds the alert and the recoverable status).
+
+`main-lead-intake` stores `score`, `tier`, `scoring` (criteria, thresholds, issues; migration `003`) and adds the tokens; status becomes `scored`.
+
+`tests/unit/test_score_maths.py` runs the exported "Compute score" node code under Node.js with 300 fixed random rating sets and the edge cases above, and checks it against an independent Python implementation of the formula.
 
 ### 3.4 `sub-crm-update`
 Input:

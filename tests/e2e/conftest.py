@@ -8,7 +8,7 @@ import json
 import subprocess
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import httpx
@@ -104,3 +104,60 @@ def api(n8n_url: str, env: dict[str, str]) -> httpx.Client:
     return httpx.Client(
         base_url=f"{n8n_url}/api/v1", headers={"X-N8N-API-KEY": env["N8N_API_KEY"]}, timeout=30
     )
+
+
+# --- mock server (Tavily + Gemini) ----------------------------------------------------
+# Fixture companies in tests/mock_server/fixtures/companies.json: (company, website, email)
+COMPANIES = {
+    "harbor": (
+        "Harbor Logistics",
+        "harborlogistics.example",
+        "daniel.reyes@harborlogistics.example",
+    ),
+    "unreachable": ("Unreachable Corp", "unreachable.example", "jo@unreachable.example"),
+    "coastline": ("Coastline Clinics", "", "priya.natarajan@gmail.com"),
+    "unknown": ("Nobody Knows Ltd", "nobody-knows.example", "a@nobody-knows.example"),
+}
+
+
+@pytest.fixture()
+def mock(env: dict[str, str]) -> Iterator[httpx.Client]:
+    client = httpx.Client(base_url=env.get("MOCK_URL", "http://localhost:8099"), timeout=10)
+    client.post("/_control/reset")
+    yield client
+    client.post("/_control/reset")
+
+
+def fail(mock: httpx.Client, service: str, times: int) -> None:
+    """Make the next `times` calls fail; service is tavily_search, tavily_extract, gemini
+    or gemini:<task> (profile, score, draft, judge)."""
+    mock.post("/_control/fail", json={"service": service, "times": times}).raise_for_status()
+
+
+def calls(mock: httpx.Client, service: str) -> int:
+    return sum(1 for c in mock.get("/_control/calls").json() if c["service"] == service)
+
+
+def gemini_calls(mock: httpx.Client, task: str) -> int:
+    return sum(1 for c in mock.get("/_control/calls").json()
+               if c["service"] == "gemini" and c["path"].endswith(f"#{task}"))  # fmt: skip
+
+
+def gemini_request(mock: httpx.Client, task: str) -> str:
+    """The JSON body (first 50 kB) of the first Gemini request for a task."""
+    return str(next(c["body"] for c in mock.get("/_control/calls").json()
+                    if c["service"] == "gemini" and c["path"].endswith(f"#{task}")))  # fmt: skip
+
+
+def post_company_lead(post_lead: PostLead, key: str, **overrides: str) -> str:
+    """Post a lead for one fixture company; returns its lead_id."""
+    company, website, email = COMPANIES[key]
+    payload = {
+        "name": "Test Person", "email": email, "company": company, "website": website,
+        "role": "Head of Operations", "budget_range": "$20k-$50k",
+        "message": f"We need a customer portal for our team. {uuid.uuid4()}",
+        **overrides,
+    }  # fmt: skip
+    res = post_lead(payload)
+    assert res.status_code == 202, res.text
+    return str(res.json()["lead_id"])

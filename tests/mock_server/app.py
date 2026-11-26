@@ -27,6 +27,8 @@ app = FastAPI(title="LeadPilot mock services")
 
 _state: dict[str, Any] = {"fail": {}, "calls": []}
 SERVICES = ("tavily_search", "tavily_extract", "gemini")
+# Gemini failures can also target one task, e.g. "gemini:score" (profile, score, draft, judge).
+GEMINI_TASKS = ("profile", "score", "draft", "judge")
 
 
 def _load(name: str) -> dict[str, Any]:
@@ -66,7 +68,7 @@ def _maybe_fail(service: str) -> None:
 
 
 def _record(service: str, path: str, body: Any) -> None:
-    _state["calls"].append({"service": service, "path": path, "body": json.dumps(body)[:2000]})
+    _state["calls"].append({"service": service, "path": path, "body": json.dumps(body)[:50000]})
 
 
 @app.get("/health")
@@ -78,8 +80,9 @@ def health() -> dict[str, str]:
 async def control_fail(request: Request) -> dict[str, Any]:
     body = await request.json()
     service = body["service"]
-    if service not in SERVICES:
-        raise HTTPException(400, f"service must be one of {SERVICES}")
+    allowed = (*SERVICES, *(f"gemini:{t}" for t in GEMINI_TASKS))
+    if service not in allowed:
+        raise HTTPException(400, f"service must be one of {allowed}")
     _state["fail"][service] = {
         "times": int(body.get("times", 1)),
         "status": int(body.get("status", 503)),
@@ -154,6 +157,7 @@ async def gemini_generate(model_action: str, request: Request) -> JSONResponse:
     task = _gemini_task(body)
     _record("gemini", f"{model_action}#{task}", body)
     _maybe_fail("gemini")
+    _maybe_fail(f"gemini:{task}")
     prompt = json.dumps(body.get("contents", body))
     fixture = _company_fixture(prompt)
     answer = fixture.get("gemini", {}).get(task) or _load("gemini_defaults").get(task, {})

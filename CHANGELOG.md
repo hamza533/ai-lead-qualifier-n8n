@@ -13,6 +13,7 @@ All notable changes to this project are documented here. The format follows
 - `leadpilot` database with a `leads` ledger (`db/migrations`, `make migrate`).
 - `make seed` with synthetic sample leads; 24 end-to-end tests for intake.
 - `make import` activates workflows in dependency order derived from their references.
+- Scoring (M3): `sub-score` (Gemini rates each `config/icp.json` criterion 0–3 with reason and evidence; the "Compute score" Code node computes points, the 0–100 score and the tier, and reports invalid or missing ratings as 0 with an issue); the pipeline stores score, tier and the scorecard (migration `003`). Unit tests run the exported node code against a Python reference; 9 end-to-end tests. The workflow linter now compiles every Code node. The mock can fail one Gemini task (`gemini:score`).
 - Enrichment (M2): `sub-enrich` (Tavily search + extract, Gemini structured profile, grounding guard that drops facts citing unread pages, `ok`/`partial`/`failed` status, retries then graceful degradation); the pipeline stores the profile and per-lead usage (migration `002`). 10 end-to-end tests; mock server matches companies by name and picks Gemini answers by response schema.
 
 ### Changed
