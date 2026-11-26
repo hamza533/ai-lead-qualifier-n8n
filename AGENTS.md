@@ -41,7 +41,9 @@ None by default (no Next.js UI, no Neon). If a newer n8n version offers its own 
 - **Credentials are never exported.** `make credentials` creates them from `.env` with fixed IDs; workflows reference them by ID and name only. CI (`scripts/lint_workflows.py`) fails on inline credential data or secret-looking strings.
 - **The Slack interactivity URL must be public.** Run `make tunnel` and set `N8N_WEBHOOK_URL` to the tunnel URL, then restart n8n, before testing Slack approvals.
 - **Gemini free-tier limits** (requests per minute/day are low and change; see https://ai.google.dev/gemini-api/docs/rate-limits). The eval harness throttles and caches; free-tier data may be used by Google, so only synthetic/public data goes through it.
-- **Score maths lives in the Code node** in `sub-score` (`points = rating/3*weight`, total normalised to 0–100). The model only rates criteria; never let it produce the total.
+- **Score maths lives in the Code node** "Compute score" in `sub-score` (`points = rating/3*weight`, total normalised to 0–100). The model only rates criteria; never let it produce the total. `tests/unit/test_score_maths.py` runs that node's exported code, so after changing it in n8n, `make export` before `make test`. Never send weights, contact names or emails to the model.
+- **Code nodes are syntax-checked by `make lint`** (needs Node.js). If you generate workflow JSON with a script, beware `"""` inside Python triple-quoted strings: it silently ends the string.
+- **Pipeline status moves fast in tests:** the pipeline runs in the background, so a test that reads `status` right after a step may already see a later status. Assert on the step's own columns (`enrichment_status`, `score`) instead.
 - **`DRY_RUN=true`** skips real HubSpot, Slack and email writes (CI/e2e). **`EVAL_AUTO_APPROVE=true`** auto-approves drafts and is ignored unless `DEMO_MODE=true`.
 - **Execution pruning** is on (`EXECUTIONS_DATA_PRUNE=true`, 336 h). Execution data older than 14 days is deleted, so evaluation reads results soon after each run.
 - **n8n 2.x specifics:**

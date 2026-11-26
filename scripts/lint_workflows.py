@@ -7,12 +7,15 @@ Checks every file in /workflows:
   * every workflow except the error handler has settings.errorWorkflow set
   * credentials are referenced by id + name only (no inline data)
   * no hardcoded secrets anywhere in the file
+  * every Code node compiles (Node.js syntax check)
 """
 
 from __future__ import annotations
 
 import json
 import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -111,13 +114,54 @@ def lint_workflow(path: Path) -> list[str]:
     return errors
 
 
+# Compiles each Code node the way n8n runs it (the body of an async function).
+_SYNTAX_CHECK = r"""
+const vm = require('vm');
+let input = '';
+process.stdin.on('data', (d) => (input += d)).on('end', () => {
+  const errors = [];
+  for (const [where, code] of JSON.parse(input)) {
+    try { new vm.Script(`(async function () {\n${code}\n})`); }
+    catch (e) { errors.push(`${where}: JavaScript syntax error: ${e.message}`); }
+  }
+  process.stdout.write(JSON.stringify(errors));
+});
+"""
+
+
+def check_code_syntax(files: list[Path]) -> list[str]:
+    """Syntax-check every Code node with Node.js (skipped with a note if node is missing)."""
+    snippets = []
+    for path in files:
+        try:
+            wf = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        for node in wf.get("nodes", []):
+            code = node.get("parameters", {}).get("jsCode")
+            if node.get("type") == "n8n-nodes-base.code" and isinstance(code, str):
+                snippets.append((f"{path.name} › {node.get('name', '?')}", code))
+    node_bin = shutil.which("node")
+    if not snippets:
+        return []
+    if node_bin is None:
+        print("lint_workflows: node not found, Code node syntax not checked")
+        return []
+    proc = subprocess.run(  # noqa: S603 - fixed argv, code passed on stdin
+        [node_bin, "-e", _SYNTAX_CHECK], input=json.dumps(snippets),
+        capture_output=True, text=True, check=True, encoding="utf-8",
+    )  # fmt: skip
+    errors: list[str] = json.loads(proc.stdout)
+    return errors
+
+
 def main(argv: list[str]) -> int:
     folder = Path(argv[1]) if len(argv) > 1 else ROOT / "workflows"
     files = sorted(folder.glob("*.json"))
     if not files:
         print(f"lint_workflows: no workflow files in {folder} (nothing to check)")
         return 0
-    errors = [e for f in files for e in lint_workflow(f)]
+    errors = [e for f in files for e in lint_workflow(f)] + check_code_syntax(files)
     for error in errors:
         print(f"ERROR {error}")
     print(f"lint_workflows: {len(files)} file(s), {len(errors)} error(s)")

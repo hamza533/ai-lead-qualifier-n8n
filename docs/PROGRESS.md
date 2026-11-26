@@ -1,14 +1,14 @@
 # PROGRESS – handoff log
 
 ## Status
-**Current milestone:** M3 – Scoring sub-workflow (next)
+**Current milestone:** M4 – Draft + Slack approval (next)
 
 | # | Milestone | Status |
 |---|---|---|
 | M0 | Repo foundation | done (merged to `main` locally) |
 | M1 | Intake + validation | done (merged to `main` locally) |
 | M2 | Enrichment sub-workflow | done (merged to `main` locally) |
-| M3 | Scoring sub-workflow | not started |
+| M3 | Scoring sub-workflow | done (merged to `main` locally) |
 | M4 | Draft + Slack approval | not started |
 | M5 | Send + CRM sub-workflow | not started |
 | M6 | Errors + reliability | not started |
@@ -22,7 +22,9 @@
 
 **Done in M2:** `sub-enrich` (Tavily search → extract up to 3 pages → Gemini profile with `responseSchema` → grounding guard), statuses `ok`/`partial`/`failed`, retries 3× then graceful degradation (lead continues as `enrichment_failed`, scored on form data only), pipeline stores profile + usage (migration `002`). Mock: company aliases, schema-based Gemini task detection, third-party page extraction. 10 enrichment e2e tests. `make import` now activates in dependency order derived from workflow references (unit-tested; the old name-based order broke on a fresh rebuild).
 
-**Next step:** M3 on `feat/m3-score`: `sub-score` (Gemini rates each `config/icp.json` criterion 0–3 with reason + evidence; a Code node computes the weighted 0–100 total and tier), a test proving total = weighted ratings with fixed ratings, then call it from `main-lead-intake` and store score/tier on the lead row.
+**Done in M3:** `sub-score` (rating prompt with criteria + rating guides, no names/emails/weights, injection warning; Gemini `responseSchema`; "Compute score" Code node: points, score, tier, `issues` for missing/invalid ratings and unresearched evidence), pipeline stores score/tier/scorecard (migration `003`). `tests/unit/test_score_maths.py` runs the exported node under Node.js vs a Python reference (300 seeded rating sets + edge cases). Linter compiles Code nodes. Mock per-task Gemini failures (`gemini:score`). 9 scoring e2e tests; enrichment tests now assert `enrichment_status` (status moves on to `scored`).
+
+**Next step:** M4 on `feat/m4-approval`: `config/reply_style.md`, grounded reply draft (Gemini) for hot/warm leads, Slack Send and Wait with a custom form (approve / approve with edits / reject), 4 h reminder, 24 h timeout path (short override for tests). Needs a Slack app for real runs (see Blockers); build with `DRY_RUN` + `EVAL_AUTO_APPROVE` first.
 
 ## Blockers / open questions
 - **No GitHub remote yet.** Milestones are merged locally with `--no-ff`; CI runs once the repo is pushed. Creating the public repo needs the owner's OK.
@@ -36,11 +38,11 @@
 ```
 make setup        # uv sync + .env with generated secrets
 make dev          # n8n + Postgres → http://localhost:${N8N_HOST_PORT} (owner login: .env N8N_INSTANCE_OWNER_EMAIL / N8N_OWNER_PASSWORD)
-make check        # ruff, ruff format --check, mypy --strict, workflow lint, 20 unit tests
-make test-e2e     # boots n8n + runners + mock (DRY_RUN), migrates, imports credentials + workflows, runs pytest -m e2e (34 tests: 2 smoke + 22 intake + 10 enrichment)
+make check        # ruff, ruff format --check, mypy --strict, workflow lint (incl. Code node syntax), 38 unit tests
+make test-e2e     # boots n8n + runners + mock (DRY_RUN), migrates, imports credentials + workflows, runs pytest -m e2e (43 tests: 2 smoke + 22 intake + 10 enrichment + 9 scoring)
 make seed         # posts sample_data/leads.jsonl to the signed webhook (expect 202, 202, 202, 202, 200 spam)
 ```
-Expected: `n8n ready at http://localhost:5680`, `created/updated 6 credentials`, `activated` ×4, `20 passed`, `34 passed`.
+Expected: `n8n ready at http://localhost:5680`, `created/updated 6 credentials`, `activated` ×6, `38 passed`, `43 passed`.
 
 ## Session log
 - 2026-11-25 – Claude Code – Repo initialised; docs, architecture and progress plan written.
@@ -48,3 +50,4 @@ Expected: `n8n ready at http://localhost:5680`, `created/updated 6 credentials`,
 - 2026-11-26 – Claude Code – Stitch showcase exported to docs/ui (7 frames 1920×1080 + full pages + HTML + design tokens); invented claims and real-looking domains corrected.
 - 2026-11-26 – Claude Code – M1 intake + validation: webhook/form intakes, sub-validate, leads ledger, Postgres 17 + external runners; 24 e2e tests green on a fresh rebuild.
 - 2026-11-26 – Claude Code – M2 enrichment: sub-enrich with grounding guard and graceful degradation, usage tracking; 34 e2e tests green on a fresh rebuild.
+- 2026-11-26 – Claude Code – M3 scoring: sub-score with deterministic Compute score node, maths unit-tested on the exported node code, Code-node syntax lint; 43 e2e tests.

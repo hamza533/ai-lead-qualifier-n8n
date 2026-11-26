@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
-from scripts.lint_workflows import ERROR_WORKFLOW_ID, lint_workflow, main
+import pytest
+
+from scripts.lint_workflows import ERROR_WORKFLOW_ID, check_code_syntax, lint_workflow, main
 
 
 def _workflow(nodes: list[dict[str, Any]], **extra: Any) -> dict[str, Any]:
@@ -102,3 +105,27 @@ def test_invalid_json_is_reported(tmp_path: Path) -> None:
 
 def test_main_on_empty_folder_passes(tmp_path: Path) -> None:
     assert main(["lint", str(tmp_path)]) == 0
+
+
+def _code_node(js: str) -> dict[str, Any]:
+    return {
+        "name": "Build prompt",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "parameters": {"mode": "runOnceForAllItems", "jsCode": js},
+    }
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js not installed")
+def test_code_node_syntax_error_is_reported(tmp_path: Path) -> None:
+    broken = "const lines = ['Message:', '\"\"\"', lead.message, '\"\"\"'\nreturn [];"
+    path = _write(tmp_path, _workflow([_code_node(broken)]))
+    errors = check_code_syntax([path])
+    assert len(errors) == 1
+    assert "Build prompt: JavaScript syntax error" in errors[0]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js not installed")
+def test_valid_code_node_with_await_and_return_passes(tmp_path: Path) -> None:
+    js = "const x = await Promise.resolve(1);\nreturn [{ json: { x } }];"
+    assert check_code_syntax([_write(tmp_path, _workflow([_code_node(js)]))]) == []

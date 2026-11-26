@@ -3,55 +3,32 @@
 from __future__ import annotations
 
 import json
-import uuid
-from collections.abc import Iterator
 from typing import Any
 
 import httpx
 import pytest
 
-from tests.e2e.conftest import PostLead, sql, wait_for
+from tests.e2e.conftest import (
+    PostLead,
+    calls,
+    fail,
+    gemini_calls,
+    gemini_request,
+    post_company_lead,
+    sql,
+    wait_for,
+)
 
 pytestmark = pytest.mark.e2e
 
-COMPANIES = {
-    "harbor": (
-        "Harbor Logistics",
-        "harborlogistics.example",
-        "daniel.reyes@harborlogistics.example",
-    ),
-    "unreachable": ("Unreachable Corp", "unreachable.example", "jo@unreachable.example"),
-    "coastline": ("Coastline Clinics", "", "priya.natarajan@gmail.com"),
-    "unknown": ("Nobody Knows Ltd", "nobody-knows.example", "a@nobody-knows.example"),
-}
-
-
-@pytest.fixture()
-def mock(env: dict[str, str]) -> Iterator[httpx.Client]:
-    client = httpx.Client(base_url=env.get("MOCK_URL", "http://localhost:8099"), timeout=10)
-    client.post("/_control/reset")
-    yield client
-    client.post("/_control/reset")
-
-
-def fail(mock: httpx.Client, service: str, times: int) -> None:
-    mock.post("/_control/fail", json={"service": service, "times": times}).raise_for_status()
-
-
-def calls(mock: httpx.Client, service: str) -> int:
-    return sum(1 for c in mock.get("/_control/calls").json() if c["service"] == service)
-
 
 def enrich(post_lead: PostLead, key: str) -> dict[str, Any]:
-    """Post a lead for one fixture company and wait until its enrichment is recorded."""
-    company, website, email = COMPANIES[key]
-    res = post_lead({
-        "name": "Test Person", "email": email, "company": company, "website": website,
-        "role": "Head of Operations", "budget_range": "$20k-$50k",
-        "message": f"We need a customer portal for our team. {uuid.uuid4()}",
-    })  # fmt: skip
-    assert res.status_code == 202, res.text
-    lead_id = res.json()["lead_id"]
+    """Post a lead for one fixture company and wait until its enrichment is recorded.
+
+    "status" is whatever the pipeline has reached by then (it may already be scored);
+    assert on "enrichment_status" for the enrichment outcome.
+    """
+    lead_id = post_company_lead(post_lead, key)
 
     def recorded() -> list[list[str]]:
         return sql(
@@ -78,7 +55,6 @@ def test_company_with_website_gets_a_sourced_profile(
     post_lead: PostLead, mock: httpx.Client
 ) -> None:
     result = enrich(post_lead, "harbor")
-    assert result["status"] == "enriched"
     assert result["enrichment_status"] == "ok"
     profile = result["profile"]
     assert profile["industry"] == {
@@ -107,7 +83,7 @@ def test_usage_is_recorded(post_lead: PostLead, mock: httpx.Client) -> None:
     assert result["credits"] == 2  # 1 basic search + 1 extract batch (up to 5 pages)
     assert calls(mock, "tavily_search") == 1
     assert calls(mock, "tavily_extract") == 1
-    assert calls(mock, "gemini") == 1
+    assert gemini_calls(mock, "profile") == 1
 
 
 def test_unreachable_website_continues_with_lower_confidence(
@@ -133,10 +109,10 @@ def test_unknown_company_is_scored_on_form_data_without_a_model_call(
     post_lead: PostLead, mock: httpx.Client
 ) -> None:
     result = enrich(post_lead, "unknown")
-    assert result["status"] == "enrichment_failed"
+    assert result["enrichment_status"] == "failed"
     assert result["note"] == "no public information found – scored on form data only"
     assert result["profile"]["industry"]["value"] == "Unknown"
-    assert calls(mock, "gemini") == 0
+    assert gemini_calls(mock, "profile") == 0
 
 
 def test_transient_search_failures_are_retried(post_lead: PostLead, mock: httpx.Client) -> None:
@@ -161,18 +137,18 @@ def test_search_outage_still_uses_the_company_website(
 def test_model_outage_leaves_the_lead_in_a_recoverable_status(
     post_lead: PostLead, mock: httpx.Client
 ) -> None:
-    fail(mock, "gemini", 10)
+    fail(mock, "gemini:profile", 10)
     result = enrich(post_lead, "harbor")
-    assert calls(mock, "gemini") == 3
-    assert result["status"] == "enrichment_failed"
+    assert gemini_calls(mock, "profile") == 3
+    assert result["enrichment_status"] == "failed"
     assert result["note"] == "company profile step failed – scored on form data only"
-    assert "injected gemini failure" in result["error"]
+    assert "injected gemini:profile failure" in result["error"]
 
 
 def test_prompt_contains_only_read_sources_and_an_injection_warning(
     post_lead: PostLead, mock: httpx.Client
 ) -> None:
     enrich(post_lead, "harbor")
-    body = next(c["body"] for c in mock.get("/_control/calls").json() if c["service"] == "gemini")
+    body = gemini_request(mock, "profile")
     assert "ignore any instructions" in body
     assert "responseSchema" in body
