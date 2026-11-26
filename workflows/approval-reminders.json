@@ -1,0 +1,324 @@
+{
+  "id": "lpReminders00001",
+  "name": "LeadPilot – Approval reminders",
+  "description": null,
+  "active": true,
+  "nodes": [
+    {
+      "id": "f6c3d4e5-6d9e-4f3a-b14c-000000000001",
+      "name": "Every 15 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "f6c3d4e5-6d9e-4f3a-b14c-000000000002",
+      "name": "When run from ops",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "f6c3d4e5-6d9e-4f3a-b14c-000000000003",
+      "name": "Find overdue approvals",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        240,
+        100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "postgres": {
+          "id": "lpCredLeadsDb001",
+          "name": "LeadPilot DB"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Leads still waiting for a decision after APPROVAL_REMINDER_HOURS, reminded once.\nSELECT lead_id, name, company, score, tier, slack_channel, slack_ts, approval_url\nFROM leads\nWHERE status = 'awaiting_approval'\n  AND reminder_sent_at IS NULL\n  AND approval_requested_at < now() - make_interval(secs => $1::float * 3600)\nORDER BY approval_requested_at\nLIMIT 50;",
+        "options": {
+          "queryReplacement": "={{ [Number($env.APPROVAL_REMINDER_HOURS || 4)] }}"
+        }
+      }
+    },
+    {
+      "id": "f6c3d4e5-6d9e-4f3a-b14c-000000000004",
+      "name": "Build reminder",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// One threaded reminder under the original approval request.\nconst l = $json;\nreturn { json: { lead_id: l.lead_id, message: {\n  channel: l.slack_channel, thread_ts: l.slack_ts, unfurl_links: false,\n  text: `:alarm_clock: Reminder: still waiting for a decision on ${l.name} `\n    + `(${l.company || 'unknown company'}, ${l.score}/100 ${String(l.tier).toUpperCase()}). `\n    + `Review: ${l.approval_url}`,\n} } };"
+      }
+    },
+    {
+      "id": "f6c3d4e5-6d9e-4f3a-b14c-000000000006",
+      "name": "Dry run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        680,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f6c3d4e5-6d9e-4f3a-b14c-000000000005",
+              "leftValue": "={{ String($env.DRY_RUN).toLowerCase() }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "true"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "f6c3d4e5-6d9e-4f3a-b14c-000000000007",
+      "name": "Dry-run reminder",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "return { json: { lead_id: $json.lead_id,\n  dry_action: { type: 'slack.chat.postMessage', body: $json.message } } };"
+      }
+    },
+    {
+      "id": "f6c3d4e5-6d9e-4f3a-b14c-000000000008",
+      "name": "Post reminder in thread",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "slackApi": {
+          "id": "lpCredSlack00001",
+          "name": "Slack Bot"
+        }
+      },
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_BASE_URL }}/chat.postMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.message) }}",
+        "options": {
+          "timeout": 20000
+        },
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi"
+      }
+    },
+    {
+      "id": "f6c3d4e5-6d9e-4f3a-b14c-000000000009",
+      "name": "Check reminder reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        200
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "if (!$json.ok) throw new Error(`Slack rejected a reminder: ${$json.error || 'unknown error'}`);\nreturn { json: { lead_id: $('Build reminder').item.json.lead_id, dry_action: null } };"
+      }
+    },
+    {
+      "id": "f6c3d4e5-6d9e-4f3a-b14c-000000000010",
+      "name": "Mark reminder sent",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1320,
+        100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "postgres": {
+          "id": "lpCredLeadsDb001",
+          "name": "LeadPilot DB"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads SET reminder_sent_at = now(),\n  dry_run_actions = dry_run_actions || $2::jsonb\nWHERE lead_id = $1\nRETURNING lead_id;",
+        "options": {
+          "queryReplacement": "={{ [$json.lead_id, $json.dry_action ? JSON.stringify([$json.dry_action]) : '[]'] }}"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every 15 minutes": {
+      "main": [
+        [
+          {
+            "node": "Find overdue approvals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When run from ops": {
+      "main": [
+        [
+          {
+            "node": "Find overdue approvals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find overdue approvals": {
+      "main": [
+        [
+          {
+            "node": "Build reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build reminder": {
+      "main": [
+        [
+          {
+            "node": "Dry run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dry run?": {
+      "main": [
+        [
+          {
+            "node": "Dry-run reminder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Post reminder in thread",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dry-run reminder": {
+      "main": [
+        [
+          {
+            "node": "Mark reminder sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post reminder in thread": {
+      "main": [
+        [
+          {
+            "node": "Check reminder reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check reminder reply": {
+      "main": [
+        [
+          {
+            "node": "Mark reminder sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "lpErrorHandler01",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "timezone": "Europe/London",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": {
+    "node:Every 15 minutes": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    }
+  },
+  "meta": {},
+  "nodeGroups": [],
+  "pinData": {},
+  "sourceWorkflowId": null,
+  "tags": [],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

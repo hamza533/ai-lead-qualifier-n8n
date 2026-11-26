@@ -6,9 +6,13 @@ UV      ?= uv
 RUN     := $(UV) run
 COMPOSE := docker compose
 TEST_COMPOSE := $(COMPOSE) -f docker-compose.yml -f docker-compose.test.yml --profile test
+DRYRUN_COMPOSE := $(COMPOSE) -f docker-compose.yml -f docker-compose.test.yml \
+                  -f docker-compose.dryrun.yml --profile test
+# The test stack sends email to the local mailpit inbox instead of your SMTP server.
+TEST_SMTP := SMTP_HOST=mailpit SMTP_PORT=1025 SMTP_SECURE=false SMTP_USER=test SMTP_PASSWORD=test
 
-.PHONY: help setup dev down logs check lint test test-e2e e2e-up e2e-down eval seed \
-        export import credentials hubspot-setup tunnel migrate
+.PHONY: help setup dev down logs check lint test test-e2e test-e2e-dryrun e2e-up e2e-down \
+        eval eval-mock seed export import credentials hubspot-setup tunnel migrate ops
 
 help: ## List targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-15s %s\n", $$1, $$2}'
@@ -39,18 +43,24 @@ test: ## Unit tests (no containers needed)
 
 check: lint test ## lint + test; must pass before every commit
 
-e2e-up: ## Start n8n + Postgres + mock server in test mode, then import workflows
+e2e-up: ## Start the test stack (mocks for every external service + mailpit) and import workflows
 	$(TEST_COMPOSE) up -d --build
 	$(RUN) python -m scripts.n8n_admin wait
 	$(RUN) python -m scripts.n8n_admin migrate
-	$(RUN) python -m scripts.n8n_admin credentials
+	$(TEST_SMTP) $(RUN) python -m scripts.n8n_admin credentials
 	$(RUN) python -m scripts.n8n_admin import
 
 e2e-down: ## Stop the test stack and delete its data
-	$(TEST_COMPOSE) down -v
+	$(DRYRUN_COMPOSE) down -v
 
-test-e2e: e2e-up ## End-to-end tests against mocks (DRY_RUN=true)
-	$(RUN) pytest -m e2e
+test-e2e: e2e-up ## End-to-end tests: full write path against the mocks and mailpit
+	$(RUN) pytest -m "e2e and not dryrun"
+
+test-e2e-dryrun: ## End-to-end tests with DRY_RUN=true (run after e2e-up): nothing is written
+	$(DRYRUN_COMPOSE) up -d n8n
+	$(RUN) python -m scripts.n8n_admin wait
+	$(RUN) pytest -m dryrun
+	$(TEST_COMPOSE) up -d n8n
 
 export: ## Export workflows from the running n8n into /workflows
 	$(RUN) python -m scripts.n8n_admin export

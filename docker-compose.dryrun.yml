@@ -1,0 +1,6 @@
+# Dry-run overlay (on top of docker-compose.test.yml): no Slack, HubSpot or email writes.
+# The skipped calls are recorded in leads.dry_run_actions instead.
+services:
+  n8n:
+    environment:
+      DRY_RUN: "true"

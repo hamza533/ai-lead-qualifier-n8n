@@ -149,7 +149,7 @@ def gemini_request(mock: httpx.Client, task: str) -> str:
                     if c["service"] == "gemini" and c["path"].endswith(f"#{task}")))  # fmt: skip
 
 
-def post_company_lead(post_lead: PostLead, key: str, **overrides: str) -> str:
+def post_company_lead(post_lead: PostLead, key: str, **overrides: Any) -> str:
     """Post a lead for one fixture company; returns its lead_id."""
     company, website, email = COMPANIES[key]
     payload = {
@@ -161,3 +161,67 @@ def post_company_lead(post_lead: PostLead, key: str, **overrides: str) -> str:
     res = post_lead(payload)
     assert res.status_code == 202, res.text
     return str(res.json()["lead_id"])
+
+
+# --- approval (M4) ----------------------------------------------------------------------
+def await_approval(lead_id: str, timeout: float = 60) -> str:
+    """Wait until the lead is waiting for a decision; returns the approval form URL."""
+
+    def ready() -> list[list[str]]:
+        return sql(
+            "SELECT approval_url FROM leads "
+            f"WHERE lead_id = '{lead_id}' AND status = 'awaiting_approval'"
+        )
+
+    return str(wait_for(ready, timeout)[0][0])
+
+
+def submit_decision(url: str, decision: str, *, reviewer: str = "Sara Chen",
+                    subject: str | None = None, body: str | None = None,
+                    reason: str = "") -> httpx.Response:  # fmt: skip
+    """Fill in the approval form the way a reviewer's browser does (fields in form order).
+
+    subject/body None keeps the pre-filled draft."""
+    page = httpx.get(url, headers={"User-Agent": BROWSER_UA}, timeout=30)
+    page.raise_for_status()
+    # One JSON value per row: psql output is line-based and the body has several lines.
+    stored = sql(
+        "SELECT json_build_array(draft->>'subject', draft->>'body') FROM leads "
+        f"WHERE approval_url = '{url.replace(chr(39), chr(39) * 2)}'"
+    )[0][0]
+    draft = json.loads(stored)
+    fields = {
+        "field-0": reviewer,
+        "field-1": decision,
+        "field-2": draft[0] if subject is None else subject,
+        "field-3": draft[1] if body is None else body,
+        "field-4": reason,
+    }
+    return httpx.post(url, files={k: (None, v) for k, v in fields.items()},
+                      headers={"User-Agent": BROWSER_UA}, timeout=30)  # fmt: skip
+
+
+def decision_of(lead_id: str, timeout: float = 60) -> dict[str, Any]:
+    def decided() -> list[list[str]]:
+        return sql(
+            f"SELECT decision FROM leads WHERE lead_id = '{lead_id}' AND decision IS NOT NULL"
+        )
+
+    result: dict[str, Any] = json.loads(wait_for(decided, timeout)[0][0])
+    return result
+
+
+def slack_posts(mock: httpx.Client, method: str = "chat.postMessage") -> list[dict[str, Any]]:
+    return [json.loads(c["body"]) for c in mock.get("/_control/calls").json()
+            if c["service"] == "slack" and c["path"] == method]  # fmt: skip
+
+
+@pytest.fixture()
+def ops(n8n_url: str, env: dict[str, str]) -> Callable[..., httpx.Response]:
+    def _ops(action: str, token: str | None = None, **extra: Any) -> httpx.Response:
+        return httpx.post(
+            f"{n8n_url}/webhook/ops", json={"action": action, **extra},
+            headers={"X-LeadPilot-Ops-Token": token or env["OPS_WEBHOOK_TOKEN"]}, timeout=120,
+        )  # fmt: skip
+
+    return _ops
