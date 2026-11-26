@@ -1,6 +1,6 @@
-# n8n + Postgres for development and demos.
-# `make dev` starts it; `docker compose --profile test up` adds the mock server
-# used by the end-to-end tests and CI.
+# n8n + Postgres + task runners for development and demos.
+# `make dev` starts it; the `test` profile adds the mock server used by the
+# end-to-end tests and CI (see docker-compose.test.yml).
 name: leadpilot
 
 x-n8n-env: &n8n-env
@@ -9,11 +9,12 @@ x-n8n-env: &n8n-env
     DB_TYPE: postgresdb
     # Workflows read non-secret settings ($env.GEMINI_BASE_URL etc.) in expressions.
     N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
-    # Code nodes may use node:crypto (HMAC check, lead hash). Nothing else.
-    NODE_FUNCTION_ALLOW_BUILTIN: crypto
     # File nodes may only read the mounted config folder.
     N8N_RESTRICT_FILE_ACCESS_TO: /home/node/.n8n-files
-    N8N_RUNNERS_MODE: internal
+    # Code nodes run in the separate task-runners container (n8n 2.x recommended mode).
+    N8N_RUNNERS_MODE: external
+    N8N_RUNNERS_BROKER_LISTEN_ADDRESS: 0.0.0.0
+    N8N_RUNNERS_TASK_TIMEOUT: "60"
     N8N_DIAGNOSTICS_ENABLED: "false"
     N8N_PERSONALIZATION_ENABLED: "false"
     N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
@@ -24,7 +25,7 @@ x-n8n-env: &n8n-env
 
 services:
   postgres:
-    image: postgres:16.6-alpine
+    image: postgres:17.6-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${DB_POSTGRESDB_USER:-n8n}
@@ -57,6 +58,19 @@ services:
       interval: 5s
       timeout: 5s
       retries: 60
+
+  task-runners:
+    image: n8nio/runners:2.49.6
+    restart: unless-stopped
+    environment:
+      N8N_RUNNERS_TASK_BROKER_URI: http://n8n:5679
+      N8N_RUNNERS_AUTH_TOKEN: ${N8N_RUNNERS_AUTH_TOKEN:?run make setup first}
+      N8N_RUNNERS_TASK_TIMEOUT: "60"
+      # Code nodes may use node:crypto (HMAC check, lead hash). Nothing else.
+      NODE_FUNCTION_ALLOW_BUILTIN: crypto
+      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-UTC}
+    depends_on:
+      - n8n
 
   mock:
     profiles: ["test"]

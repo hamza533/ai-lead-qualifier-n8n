@@ -1,0 +1,381 @@
+{
+  "id": "lpSubValidate001",
+  "name": "LeadPilot – Sub: validate + deduplicate",
+  "description": null,
+  "active": true,
+  "nodes": [
+    {
+      "id": "7a2e0b63-2d66-4c2f-8e2b-1d2f3b000001",
+      "name": "When called by an intake workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "6f1d0a52-1c55-4b1e-9d1a-0c1f2a000007",
+      "name": "Read ICP config",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "/home/node/.n8n-files/config/icp.json",
+        "options": {}
+      }
+    },
+    {
+      "id": "6f1d0a52-1c55-4b1e-9d1a-0c1f2a000008",
+      "name": "Parse ICP config",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "operation": "fromJson",
+        "destinationKey": "icp",
+        "options": {}
+      }
+    },
+    {
+      "id": "6f1d0a52-1c55-4b1e-9d1a-0c1f2a000009",
+      "name": "Validate + normalise",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Normalise a submission from either trigger, validate it and run the spam checks.\n// Rules (free-mail domains, honeypot, link limit, blocked phrases) live in config/icp.json.\nconst crypto = require('crypto');\nconst icp = $input.first().json.icp;\nconst sub = $('When called by an intake workflow').first().json;\nconst f = sub.fields || {};\n\nconst clean = (v, max = 200) => String(v ?? '').replace(/\\s+/g, ' ').trim().slice(0, max);\nconst name = clean(f.name);\nconst email = clean(f.email, 254).toLowerCase();\nconst message = String(f.message ?? '').trim().slice(0, 5000);\nconst role = clean(f.role);\nconst budget = clean(f.budget_range ?? f.budget, 60);\nlet company = clean(f.company);\n\nconst errors = [];\nif (!name) errors.push('name is required');\nif (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$/.test(email)) errors.push('email is not valid');\nif (!message) errors.push('message is required');\n\nconst emailDomain = email.includes('@') ? email.split('@').pop() : '';\nconst personal = icp.free_mail_domains.includes(emailDomain);\n\n// Plain string parsing: the URL global is not available inside n8n task runners.\nlet websiteUrl = '';\nlet websiteDomain = '';\nconst host = clean(f.website, 500).toLowerCase()\n  .replace(/^[a-z][a-z0-9+.-]*:\\/\\//, '')  // scheme\n  .replace(/^[^@/]*@/, '')                  // user:pass@\n  .split(/[\\/?#:]/)[0]                      // path, query, port\n  .replace(/^www\\./, '');\nif (/^[a-z0-9-]+(\\.[a-z0-9-]+)+$/.test(host)) {\n  websiteDomain = host;\n  websiteUrl = `https://${host}`;\n}\nif (!websiteDomain && emailDomain && !personal) {\n  websiteDomain = emailDomain;\n  websiteUrl = `https://${emailDomain}`;\n}\nif (!company && websiteDomain) company = websiteDomain.split('.')[0];\n\nconst spam = [];\nconst rules = icp.spam;\nif (clean(f[rules.honeypot_field])) spam.push('honeypot field filled');\nconst links = (message.match(/(https?:\\/\\/|www\\.)/gi) || []).length;\nif (links > rules.max_links_in_message) spam.push(`${links} links in message`);\nconst lower = message.toLowerCase();\nfor (const phrase of rules.blocked_phrases) if (lower.includes(phrase)) spam.push(`blocked phrase: ${phrase}`);\n\nconst leadHash = crypto.createHash('sha256').update(`${email}\\n${message}`).digest('hex');\nconst lead = {\n  lead_id: `ld_${crypto.randomBytes(6).toString('hex')}`,\n  lead_hash: leadHash,\n  source: sub.source,\n  received_at: new Date().toISOString(),\n  name, email, email_domain: emailDomain, personal_email: personal,\n  company, website_url: websiteUrl, website_domain: websiteDomain,\n  role, budget_range: budget, message,\n};\n\nconst check = errors.length ? 'invalid' : spam.length ? 'spam' : 'ok';\nconst response = check === 'invalid'\n  ? { code: 422, body: { status: 'invalid', errors } }\n  : check === 'spam'\n    ? { code: 200, body: { status: 'rejected_spam' } }\n    : null;\nreturn [{ json: { check, errors, spam_reasons: spam, lead, response } }];"
+      }
+    },
+    {
+      "id": "6f1d0a52-1c55-4b1e-9d1a-0c1f2a00000a",
+      "name": "Route by check result",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "ok",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "r1",
+                    "leftValue": "={{ $json.check }}",
+                    "rightValue": "ok",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "spam",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "r2",
+                    "leftValue": "={{ $json.check }}",
+                    "rightValue": "spam",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "invalid",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "r3",
+                    "leftValue": "={{ $json.check }}",
+                    "rightValue": "invalid",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "6f1d0a52-1c55-4b1e-9d1a-0c1f2a00000c",
+      "name": "Claim lead (idempotency)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1100,
+        -120
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "lpCredLeadsDb001",
+          "name": "LeadPilot DB"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Insert the lead unless the same email + message arrived in the last 24 hours.\nINSERT INTO leads (lead_id, lead_hash, source, status, name, email, company,\n                   website_domain, personal_email, payload, execution_id)\nSELECT $1, $2, $3, 'received', $4, $5, $6, $7, $8::boolean, $9::jsonb, $10\nWHERE NOT EXISTS (\n  SELECT 1 FROM leads\n  WHERE lead_hash = $2\n    AND status <> 'rejected_spam'\n    AND received_at > now() - interval '24 hours'\n)\nRETURNING lead_id;",
+        "options": {
+          "queryReplacement": "={{ [$json.lead.lead_id, $json.lead.lead_hash, $json.lead.source, $json.lead.name, $json.lead.email, $json.lead.company, $json.lead.website_domain, $json.lead.personal_email, JSON.stringify($json.lead), $execution.id] }}"
+        }
+      }
+    },
+    {
+      "id": "6f1d0a52-1c55-4b1e-9d1a-0c1f2a00000d",
+      "name": "New or duplicate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        -120
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// The claim query returns the lead_id only when the lead is new.\nconst checked = $('Validate + normalise').first().json;\nconst claimed = $input.first().json.lead_id === checked.lead.lead_id;\nreturn [{ json: {\n  ...checked,\n  check: claimed ? 'accepted' : 'duplicate',\n  response: claimed\n    ? { code: 202, body: { status: 'accepted', lead_id: checked.lead.lead_id } }\n    : { code: 200, body: { status: 'duplicate_ignored' } },\n} }];"
+      }
+    },
+    {
+      "id": "6f1d0a52-1c55-4b1e-9d1a-0c1f2a00000b",
+      "name": "Record spam",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1100,
+        100
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "lpCredLeadsDb001",
+          "name": "LeadPilot DB"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- No personal data is kept for spam: id, hash, source and reasons only.\nINSERT INTO leads (lead_id, lead_hash, source, status, error, execution_id)\nVALUES ($1, $2, $3, 'rejected_spam', $4, $5)\nRETURNING lead_id;",
+        "options": {
+          "queryReplacement": "={{ [$json.lead.lead_id, $json.lead.lead_hash, $json.lead.source, $json.spam_reasons.join('; '), $execution.id] }}"
+        }
+      }
+    },
+    {
+      "id": "7a2e0b63-2d66-4c2f-8e2b-1d2f3b000020",
+      "name": "Spam result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Spam is recorded (without personal data) and acknowledged with a neutral answer.\nreturn [{ json: $('Validate + normalise').first().json }];"
+      }
+    },
+    {
+      "id": "7a2e0b63-2d66-4c2f-8e2b-1d2f3b000021",
+      "name": "Return result",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1560,
+        0
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "When called by an intake workflow": {
+      "main": [
+        [
+          {
+            "node": "Read ICP config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read ICP config": {
+      "main": [
+        [
+          {
+            "node": "Parse ICP config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse ICP config": {
+      "main": [
+        [
+          {
+            "node": "Validate + normalise",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate + normalise": {
+      "main": [
+        [
+          {
+            "node": "Route by check result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by check result": {
+      "main": [
+        [
+          {
+            "node": "Claim lead (idempotency)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Record spam",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim lead (idempotency)": {
+      "main": [
+        [
+          {
+            "node": "New or duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New or duplicate": {
+      "main": [
+        [
+          {
+            "node": "Return result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record spam": {
+      "main": [
+        [
+          {
+            "node": "Spam result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Spam result": {
+      "main": [
+        [
+          {
+            "node": "Return result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "lpErrorHandler01",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "timezone": "Europe/London",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "meta": {},
+  "nodeGroups": [],
+  "pinData": {},
+  "sourceWorkflowId": null,
+  "tags": [],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

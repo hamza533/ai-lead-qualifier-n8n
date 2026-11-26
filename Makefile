@@ -8,7 +8,7 @@ COMPOSE := docker compose
 TEST_COMPOSE := $(COMPOSE) -f docker-compose.yml -f docker-compose.test.yml --profile test
 
 .PHONY: help setup dev down logs check lint test test-e2e e2e-up e2e-down eval seed \
-        export import credentials hubspot-setup tunnel
+        export import credentials hubspot-setup tunnel migrate
 
 help: ## List targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-15s %s\n", $$1, $$2}'
@@ -20,6 +20,7 @@ setup: ## Install Python deps and create .env with generated secrets
 dev: ## Start n8n + Postgres (http://localhost:5678)
 	$(COMPOSE) up -d
 	$(RUN) python -m scripts.n8n_admin wait
+	$(RUN) python -m scripts.n8n_admin migrate
 
 down: ## Stop all containers (data volumes are kept)
 	$(TEST_COMPOSE) down
@@ -41,6 +42,7 @@ check: lint test ## lint + test; must pass before every commit
 e2e-up: ## Start n8n + Postgres + mock server in test mode, then import workflows
 	$(TEST_COMPOSE) up -d --build
 	$(RUN) python -m scripts.n8n_admin wait
+	$(RUN) python -m scripts.n8n_admin migrate
 	$(RUN) python -m scripts.n8n_admin credentials
 	$(RUN) python -m scripts.n8n_admin import
 
@@ -54,8 +56,11 @@ export: ## Export workflows from the running n8n into /workflows
 	$(RUN) python -m scripts.n8n_admin export
 	$(RUN) python -m scripts.lint_workflows
 
-import: ## Import /workflows into the running n8n and activate them
+import: ## Import /workflows into the running n8n and activate them (creates an API key if needed)
 	$(RUN) python -m scripts.n8n_admin import
+
+migrate: ## Create/upgrade the leads database (db/migrations)
+	$(RUN) python -m scripts.n8n_admin migrate
 
 credentials: ## Create n8n credentials from .env (fixed IDs, nothing exported)
 	$(RUN) python -m scripts.n8n_admin credentials
