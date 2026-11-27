@@ -77,7 +77,7 @@ Details, contracts and statuses: [docs/architecture.md](docs/architecture.md). W
 | Workflow engine | n8n Community Edition 2.49.6, self-hosted, Postgres-backed | The client can see and change the flow without a developer; lead data stays on their servers. |
 | Code nodes | External task runners (`n8nio/runners`) | n8n 2.x's recommended isolation for custom code. |
 | Web research | Tavily search + extract (HTTP Request) | Clean, LLM-ready text from search results and pages; no scraping code. |
-| LLM | Gemini 2.5 Flash via HTTP Request with `responseSchema` | Structured output, exact control; switching provider is a one-node change per step. |
+| LLM | Gemini 3.5 Flash (`LLM_MODEL`) via HTTP Request with `responseSchema` | Structured output, exact control; switching provider is a one-node change per step. |
 | Score maths | n8n Code node | Deterministic weighted total, unit-tested against an independent implementation. |
 | Leads ledger | Postgres table (`leadpilot` database, SQL migrations) | Atomic 24 h idempotency, recoverable statuses, retention purge; portable across n8n instances. |
 | Approval | Slack message + n8n Wait-node form | Same reviewer experience as Slack's Send-and-Wait, plus message updates, threaded reminders and full testability. The Slack app only needs `chat:write`. |
@@ -152,7 +152,7 @@ The harness ([`eval/run.py`](eval/run.py)) posts each lead in [`eval/leads.jsonl
 
 **Development: $0.** Self-hosted n8n, HubSpot free CRM, a free Slack workspace, Tavily free tier (1,000 credits/month), Gemini free tier, Gmail SMTP, Cloudflare Tunnel.
 
-**Per lead, paid tiers (estimate):** about 3 Gemini 2.5 Flash calls (≈ 5k input + 1k output tokens ≈ $0.004) and 2 Tavily credits ($0.016): **≈ $0.02 per lead**. `make eval` replaces this with measured numbers.
+**Per lead, paid tiers (estimate):** about 3 Gemini 3.5 Flash calls (≈ 5k input + 1k output tokens ≈ $0.008 at the Gemini 3.8 Flash list price, a ceiling because 3.5 Flash isn't on the pricing page) and 2 Tavily credits ($0.016): **≈ $0.02–0.03 per lead**. `make eval` replaces this with measured numbers.
 
 ## Production deployment
 

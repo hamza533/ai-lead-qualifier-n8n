@@ -30,7 +30,7 @@ def test_extract_unreachable_site_reports_failure(client: TestClient) -> None:
 
 def test_injected_failures_then_recovery(client: TestClient) -> None:
     client.post("/_control/fail", json={"service": "gemini", "times": 2, "status": 503})
-    url = "/gemini/v1beta/models/gemini-2.5-flash:generateContent"
+    url = "/gemini/v1beta/models/gemini-3.5-flash:generateContent"
     body = {"contents": [{"parts": [{"text": "[task:profile] acme.example"}]}]}
     assert client.post(url, json=body).status_code == 503
     assert client.post(url, json=body).status_code == 503
@@ -39,7 +39,7 @@ def test_injected_failures_then_recovery(client: TestClient) -> None:
 
 
 def test_gemini_returns_task_shaped_json(client: TestClient) -> None:
-    url = "/gemini/v1beta/models/gemini-2.5-flash:generateContent"
+    url = "/gemini/v1beta/models/gemini-3.5-flash:generateContent"
     res = client.post(url, json={"contents": [{"parts": [{"text": "[task:score] lead"}]}]})
     data = res.json()
     assert "ratings" in data["candidates"][0]["content"]["parts"][0]["text"]

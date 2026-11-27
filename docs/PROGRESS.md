@@ -18,7 +18,9 @@
 
 All milestones are on `main` at https://github.com/hamza533/ai-lead-qualifier-n8n (public); CI is green (lint/unit, full e2e + dry-run, eval smoke, Bicep, image scan) and CodeQL passes.
 
-**Next step (owner):** add real keys to `.env` (Blockers), run `make credentials import hubspot-setup`, try one lead end to end with `make tunnel`, then `make eval` and copy the numbers into the README, `docs/ui` (re-render) and `docs/case-study.md`. Record the demo GIF and video.
+**Real keys:** loaded on 2026-11-27 (`make credentials import hubspot-setup` done). One real lead (Flexport, synthetic contact) ran end to end with `DRY_RUN=true`: Tavily + Gemini research with 6 sources and no unsourced claims, score 93 (hot), a grounded draft, approval through the real form, and all 7 Slack/SMTP/HubSpot calls recorded. Default model is now `gemini-3.5-flash` (DECISIONS 63).
+
+**Next step (owner):** one live lead with `DRY_RUN=false` (real Slack post, email to the allow-listed inbox, HubSpot writes), then `make tunnel` for Slack-button approvals from outside, `make eval` and copy the numbers into the README, `docs/ui` (re-render) and `docs/case-study.md`. Record the demo GIF and video.
 
 ## Acceptance criteria (SPEC §9)
 
@@ -85,3 +87,4 @@ Expected: `make check` all green; e2e and dry-run suites all passed; eval-mock w
 - 2026-11-27 – Claude Code – M5 send + CRM: SMTP send with demo redirect, sub-crm-update (HubSpot v3), Slack outcome update, cold path, daily digest + purge, hubspot-setup; fixed the sent-email column clash; 9 + 2 dry-run e2e tests.
 - 2026-11-27 – Claude Code – M6–M9: error handler + sub-alert, replay (resume/restart), resumable finish-lead, race-safe claims, eval harness (30 leads + judge), Azure Bicep (queue mode, private Postgres, secrets as files), CI/CodeQL/Dependabot/Trivy, full README; independent review: 11 findings fixed with tests.
 - 2026-11-27 – Claude Code – Pushed to GitHub (public); fixed CI (YAML quoting, trivy-action pinned by SHA, readiness wait before eval-mock, patched mock image CVEs); CI and CodeQL green.
+- 2026-11-27 – Claude Code – Real keys: switched to gemini-3.5-flash (2.5 Flash is closed to new users, 3.8 Flash was overloaded), first real dry-run lead passed end to end; `make credentials` no longer warns about the unused Slack signing secret.

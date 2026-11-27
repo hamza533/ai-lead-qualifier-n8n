@@ -14,6 +14,6 @@
 - Sends the email and updates HubSpot: contact, company, score properties, a research note and a follow-up task. Cold leads get a daily digest instead of an email.
 - Failures alert a Slack channel and leave the lead recoverable, replayable with one call.
 
-**Stack.** n8n (self-hosted, Postgres, task runners) · Gemini 2.5 Flash · Tavily · Slack · HubSpot CRM v3 · SMTP · Postgres · pytest with mocks for every external service in CI · Azure Container Apps (n8n queue mode), Postgres Flexible Server, Redis, Key Vault (Bicep, validated in CI).
+**Stack.** n8n (self-hosted, Postgres, task runners) · Gemini 3.5 Flash · Tavily · Slack · HubSpot CRM v3 · SMTP · Postgres · pytest with mocks for every external service in CI · Azure Container Apps (n8n queue mode), Postgres Flexible Server, Redis, Key Vault (Bicep, validated in CI).
 
 **Result.** Researches and scores a lead in about [N] s and has a reply waiting in Slack within [p50] s; [X]% tier accuracy on 30 test leads; [Y]% of email claims traceable to the lead's message or sources; approval in one click; about $0.02 per lead in production API costs. Spam and duplicate submissions are blocked 100% of the time (tested), and an existing CRM contact is always updated, never duplicated (tested).
