@@ -385,7 +385,7 @@ var sharedEnv = [
   { name: 'GENERIC_TIMEZONE', value: 'Europe/London' }
   // Workflow settings (non-secret)
   { name: 'GEMINI_BASE_URL', value: 'https://generativelanguage.googleapis.com' }
-  { name: 'LLM_MODEL', value: 'gemini-2.5-flash' }
+  { name: 'LLM_MODEL', value: 'gemini-3.5-flash' }
   { name: 'TAVILY_BASE_URL', value: 'https://api.tavily.com' }
   { name: 'HUBSPOT_BASE_URL', value: 'https://api.hubapi.com' }
   { name: 'SLACK_BASE_URL', value: 'https://slack.com/api' }

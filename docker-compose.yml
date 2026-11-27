@@ -31,7 +31,7 @@ x-n8n-env: &n8n-env
     # Workflow settings (read with $env in the workflows; nothing secret except the HMAC
     # secret, which a Code node needs to verify webhook signatures)
     GEMINI_BASE_URL: ${GEMINI_BASE_URL:-https://generativelanguage.googleapis.com}
-    LLM_MODEL: ${LLM_MODEL:-gemini-2.5-flash}
+    LLM_MODEL: ${LLM_MODEL:-gemini-3.5-flash}
     TAVILY_BASE_URL: ${TAVILY_BASE_URL:-https://api.tavily.com}
     HUBSPOT_BASE_URL: ${HUBSPOT_BASE_URL:-https://api.hubapi.com}
     SLACK_BASE_URL: ${SLACK_BASE_URL:-https://slack.com/api}

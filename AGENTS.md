@@ -73,3 +73,4 @@ None by default (no Next.js UI, no Neon). If a newer n8n version offers its own 
 - **Duplicates are claimed in `lead_claims`**, not by querying `leads`; tests that age a lead past 24 h must age its claim too.
 - **Alerts go through `sub-alert`** (level `error` from the error handler, `warning` for degraded research). Slack text built from lead or model input must be escaped (`&`, `<`, `>`).
 - **n8n's environment is an explicit list** in `docker-compose.yml`. A new workflow setting must be added there (and in `deploy/azure/main.bicep`); never add API keys or passwords to it.
+- **Real HubSpot rejects `.test` email domains** (`INVALID_EMAIL`; the mock accepts them). For a live run use a real-looking domain such as `example.com`, and turn off HubSpot's automatic company creation from email domains (README, HubSpot setup), or contacts get a second company.

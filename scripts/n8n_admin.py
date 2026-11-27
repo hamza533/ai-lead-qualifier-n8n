@@ -122,6 +122,8 @@ CREDENTIALS: list[dict[str, Any]] = [
 ]
 INTEGER_FIELDS = {"port"}
 BOOLEAN_FIELDS = {"secure"}
+# Slack's signing secret is only for Slack-triggered workflows; approvals use n8n's signed form URL.
+OPTIONAL_FIELDS = {"signatureSecret"}
 
 
 def compose(*args: str, stdin: str | None = None, check: bool = True) -> str:
@@ -283,6 +285,9 @@ def credentials() -> None:
     placeholders = []
     for cred in CREDENTIALS:
         data = {k: _fill(v, env) for k, v in cred["data"].items()}
+        for field in OPTIONAL_FIELDS & data.keys():
+            if "CHANGE_ME" in str(data[field]) or "${" in str(data[field]):
+                data[field] = ""  # optional and unused: leave it empty instead of warning
         if any(isinstance(v, str) and "CHANGE_ME" in v for v in data.values()):
             placeholders.append(cred["name"])
         for field in INTEGER_FIELDS & data.keys():

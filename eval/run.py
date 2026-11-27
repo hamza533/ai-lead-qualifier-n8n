@@ -125,7 +125,7 @@ def judge(
     }  # fmt: skip
     for attempt in range(4):
         res = httpx.post(
-            f"{base}/v1beta/models/{env.get('LLM_MODEL', 'gemini-2.5-flash')}:generateContent",
+            f"{base}/v1beta/models/{env.get('LLM_MODEL', 'gemini-3.5-flash')}:generateContent",
             json=body, headers={"x-goog-api-key": env.get("GEMINI_API_KEY", "")}, timeout=60,
         )  # fmt: skip
         if res.status_code == 429 or res.status_code >= 500:
