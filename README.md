@@ -119,10 +119,11 @@ Modes: `DEMO_MODE=true` (mail only to `DEMO_EMAIL_ALLOWLIST`, others redirected)
 ### Tavily
 Sign up at <https://app.tavily.com> → `TAVILY_API_KEY`. The free tier has 1,000 credits a month; a lead uses about 2.
 
-### HubSpot (private app)
-1. HubSpot → Settings → Integrations → **Private Apps** → Create.
+### HubSpot (service key or private app)
+1. HubSpot → Settings → Integrations → **Service keys** (newer portals; it works as a Bearer token like a private-app token) or **Private Apps** / **Legacy Apps** → Create.
 2. Scopes (least privilege): `crm.objects.contacts.read`, `crm.objects.contacts.write`, `crm.objects.companies.read`, `crm.objects.companies.write`, `crm.schemas.contacts.read`, `crm.schemas.contacts.write`.
 3. Copy the token → `HUBSPOT_PRIVATE_APP_TOKEN`, then `make credentials` and `make hubspot-setup` (creates `ai_lead_score`, `ai_lead_tier`, `ai_score_reasons`, `ai_last_processed`).
+4. Turn off Settings → Objects → Companies → **Automatically create and associate companies with contacts**. LeadPilot creates and links the company itself (from the website domain); with the setting on, HubSpot also makes one from the email domain and marks it primary, so a contact ends up with two companies.
 
 ### Slack
 1. <https://api.slack.com/apps> → Create New App → From scratch.
