@@ -61,6 +61,7 @@ test-e2e-dryrun: ## End-to-end tests with DRY_RUN=true (run after e2e-up): nothi
 	$(RUN) python -m scripts.n8n_admin wait
 	$(RUN) pytest -m dryrun
 	$(TEST_COMPOSE) up -d n8n
+	$(RUN) python -m scripts.n8n_admin wait
 
 export: ## Export workflows from the running n8n into /workflows
 	$(RUN) python -m scripts.n8n_admin export
@@ -82,6 +83,7 @@ eval: ## Run the 30-lead evaluation (real keys, DEMO_MODE + EVAL_AUTO_APPROVE); 
 	$(RUN) python -m eval.run
 
 eval-mock: ## Smoke-run the evaluation harness on the test stack; writes eval/results-mock.*
+	$(RUN) python -m scripts.n8n_admin wait
 	$(RUN) python -m eval.run --mock --fresh
 
 seed: ## Post the sample leads to the signed webhook
