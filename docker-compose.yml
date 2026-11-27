@@ -67,7 +67,7 @@ x-n8n-env: &n8n-env
 
 services:
   postgres:
-    image: postgres:17.6-alpine
+    image: postgres:19.0-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${DB_POSTGRESDB_USER:-n8n}
