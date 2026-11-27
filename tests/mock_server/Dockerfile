@@ -1,5 +1,5 @@
 # Mock Tavily, Gemini, Slack and HubSpot server (test profile only).
-FROM python:3.12.15-slim-bookworm
+FROM python:3.15.1-slim-bookworm
 # Debian security updates at build time: CI's image scan fails on fixable critical CVEs.
 RUN apt-get update \
     && apt-get upgrade -y --no-install-recommends \
