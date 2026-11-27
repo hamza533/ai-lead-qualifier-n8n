@@ -16,7 +16,7 @@
 | M8 | Production profile + docs | done (Bicep validates; README, setup guides, cost estimate) |
 | M9 | Final check | done except the items blocked on accounts |
 
-All milestones are merged into `main` locally (no GitHub remote yet).
+All milestones are on `main` at https://github.com/hamza533/ai-lead-qualifier-n8n (public); CI is green (lint/unit, full e2e + dry-run, eval smoke, Bicep, image scan) and CodeQL passes.
 
 **Next step (owner):** add real keys to `.env` (Blockers), run `make credentials import hubspot-setup`, try one lead end to end with `make tunnel`, then `make eval` and copy the numbers into the README, `docs/ui` (re-render) and `docs/case-study.md`. Record the demo GIF and video.
 
@@ -33,7 +33,7 @@ All milestones are merged into `main` locally (no GitHub remote yet).
 | Cold leads in the daily digest and HubSpot, no email | ✅ | `test_send_crm.py::test_cold_lead…`, `…daily_digest…` |
 | Workflows exported with no credentials/secrets (CI) | ✅ | `scripts/lint_workflows.py` in `make check` |
 | `make eval` reproduces the README numbers | ⏳ blocked on keys | Harness verified with `make eval-mock` (`eval/results-mock.md`) |
-| CI: JSON lint (parses, pinned versions, retries, error workflow, no secrets); boot n8n, import, pytest e2e against mocks with `DRY_RUN=true` | ✅ written, ⏳ not yet run on GitHub (no remote) | `.github/workflows/ci.yml`: lint/test, full e2e, dry-run e2e, eval-mock, Bicep, image scan; CodeQL; Dependabot |
+| CI: JSON lint (parses, pinned versions, retries, error workflow, no secrets); boot n8n, import, pytest e2e against mocks with `DRY_RUN=true` | ✅ green on GitHub | `.github/workflows/ci.yml`: lint/test, full e2e, dry-run e2e, eval-mock, Bicep, image scan; CodeQL; Dependabot |
 | Production readiness: encryption key, pruning, Postgres backups, webhook HMAC, least-privilege scopes, retention, pinned n8n + upgrade runbook, Bicep (queue mode, Flexible Server, Redis, Key Vault, App Insights) in CI, cost at 500 and 5,000 leads | ✅ | README "Production deployment", `deploy/azure/` |
 | README: License note; setup steps for HubSpot, Slack, Gmail/SMTP, Tavily, Gemini | ✅ | README |
 | AGENTS.md Gotchas (edit in n8n + export, credentials never exported, public Slack URL, Gemini limits, score maths in Code node, DRY_RUN/EVAL_AUTO_APPROVE, pruning) | ✅ | AGENTS.md |
@@ -46,7 +46,7 @@ All milestones are merged into `main` locally (no GitHub remote yet).
 - [x] Handoff: AGENTS.md, CLAUDE.md (`@AGENTS.md`), Makefile targets, this file. A fresh clone runs `make setup && make check` with no tool-specific files.
 - [x] `docker compose up` works on a clean machine (verified repeatedly from empty volumes).
 - [ ] Evaluation numbers in the README: needs `make eval` with real keys.
-- [ ] CI green on GitHub: needs the repository to be pushed.
+- [x] CI green on GitHub.
 - [ ] Demo GIF and 60–90 s video: owner records them (`make tunnel`, `docs/ui` frames).
 - [x] Live demo: README explains why there is no always-on demo (local + tunnel).
 - [x] Upwork case study drafted: `docs/case-study.md` (numbers to fill from `make eval`).
@@ -58,7 +58,7 @@ All milestones are merged into `main` locally (no GitHub remote yet).
   - `SLACK_BOT_TOKEN` (`chat:write`), `SLACK_APPROVAL_CHANNEL`, `SLACK_ALERTS_CHANNEL`
   - `SMTP_USER`, `SMTP_PASSWORD` (Gmail app password), `EMAIL_FROM`, `DEMO_EMAIL_ALLOWLIST` (your inbox)
   - `cloudflared` installed for `make tunnel` (then set `N8N_WEBHOOK_URL` to the tunnel URL)
-- **No GitHub remote yet**: CI, CodeQL and Dependabot run once the repository is pushed (owner's choice of account/visibility).
+- **Open Dependabot PRs** (#1 mailpit v1.34.0, #2 Python 3.15 for the mock image, #3 Postgres 19): review before merging. Postgres 17 → 19 is a major upgrade that needs a dump/restore of existing data and a check that n8n 2.49 supports it; follow the README upgrade runbook.
 - **This machine:** GNU make isn't installed (run the Makefile one-liners with `uv run …`, or install make); run uv from PowerShell (Git Bash doesn't resolve uv's Python link); ports 5678/8025 are used by another project, so `.env` sets `N8N_HOST_PORT=5680` and `MAILPIT_HOST_PORT=8026`.
 - **After running the test stack**, n8n's SMTP credential points at mailpit; run `make credentials` again before using the dev stack with real email.
 - **Not verified against the real services** (no keys): Gemini's acceptance of the response schemas, Tavily response shapes beyond the documented ones, HubSpot v3 association type IDs (202/190/204/192), Slack Block Kit rendering. The first real lead with `make tunnel` checks all of them; `DRY_RUN=true` lets you inspect every outgoing payload first.
@@ -84,3 +84,4 @@ Expected: `make check` all green; e2e and dry-run suites all passed; eval-mock w
 - 2026-11-26 – Claude Code – M4 draft + approval: sub-draft with code checks, Slack request + Wait-node form (approve/edit/reject/timeout), threaded reminders, ops webhook, eval auto-approve; unit tests run the exported Check draft / Read decision code; 11 approval e2e tests.
 - 2026-11-27 – Claude Code – M5 send + CRM: SMTP send with demo redirect, sub-crm-update (HubSpot v3), Slack outcome update, cold path, daily digest + purge, hubspot-setup; fixed the sent-email column clash; 9 + 2 dry-run e2e tests.
 - 2026-11-27 – Claude Code – M6–M9: error handler + sub-alert, replay (resume/restart), resumable finish-lead, race-safe claims, eval harness (30 leads + judge), Azure Bicep (queue mode, private Postgres, secrets as files), CI/CodeQL/Dependabot/Trivy, full README; independent review: 11 findings fixed with tests.
+- 2026-11-27 – Claude Code – Pushed to GitHub (public); fixed CI (YAML quoting, trivy-action pinned by SHA, readiness wait before eval-mock, patched mock image CVEs); CI and CodeQL green.
