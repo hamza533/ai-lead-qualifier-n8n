@@ -21,7 +21,7 @@ The HTML was corrected so the visuals don't contradict the product's "no invente
 - LinkedIn sources (the workflow doesn't use LinkedIn) became the company website and `news.example`.
 - "Zero hallucinations" and "cached domain lookups" wording removed.
 
-**The numbers on `07-results` (90 %, 48 s, cost) and the 48 s on screens 1 and 4 are placeholders.** Replace them with the real values from `eval/results.md` after M7, then re-render.
+**The numbers on `01-landing`, `04-scorecard` and `07-results` come from the real-key spot check** ([`eval/results-spotcheck.md`](../../eval/results-spotcheck.md): 5 hot leads, median 81 s to the approval request, 9/9 claims traced, ≈ $0.03 per lead). The warm and cold rows of the confusion matrix say "pending" until the full `make eval` runs on Gemini's paid tier; then fill them from `eval/results.md` and re-render.
 
 ## Re-render
 ```

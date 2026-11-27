@@ -25,15 +25,15 @@ A lead arrives from the hosted n8n form or any form tool's webhook (HMAC-signed)
 
 `make eval` runs 30 synthetic leads (10 hot, 10 warm, 10 cold, including a personal email from a good company, vague messages and an unreachable website) plus a duplicate and a spam submission, through the real workflows, and writes [`eval/results.md`](eval/results.md).
 
-| Metric | Result |
-|---|---|
-| Tier accuracy (30 leads) | _run `make eval` with real keys_ |
-| Spam and duplicates handled | _run `make eval`_ (the mock run: 2/2) |
-| Claims in drafts traceable to the message or sources (LLM judge) | _run `make eval`_ |
-| Time from submission to Slack, p50 / p95 | _run `make eval`_ (the mock run: about 2 s) |
-| Estimated cost per lead (paid tiers) | _run `make eval`_ (estimate below: ≈ $0.02) |
+| Metric | Real-key spot check (5 hot leads) | Full 30-lead eval |
+|---|---|---|
+| Tier accuracy | 5/5 hot leads scored hot (93–100) | _pending: needs Gemini's paid tier_ |
+| Spam and duplicates handled | (not in the spot check) | _pending_ (mock run: 2/2; e2e tests: always) |
+| Factual claims in drafts traceable to the message or sources (LLM judge) | 9/9 (3 drafts) | _pending_ |
+| Time from submission to Slack approval request, median (range) | 81 s (20–142 s; nearly all Gemini latency) | _pending_ |
+| Estimated cost per lead (paid tiers) | ≈ $0.026 (7.2k in / 1.3k out tokens, 2 Tavily credits) | _pending_ |
 
-> **Status:** the harness, the test set and the reporting are done and run in CI against mocks ([`eval/results-mock.md`](eval/results-mock.md)). The real numbers need real Gemini and Tavily keys; see [Evaluation](#evaluation). The `docs/ui` scorecard and results screens use placeholders until then.
+> **Status:** five leads ran on real Gemini and Tavily keys ([`eval/results-spotcheck.md`](eval/results-spotcheck.md)), including one fully live run (Slack, email, HubSpot). The 30-lead `make eval` needs Gemini's paid tier: the free tier allowed 20 requests per model per day on 2026-11-27, about 5 leads. The harness, test set and reporting run in CI against mocks ([`eval/results-mock.md`](eval/results-mock.md)).
 
 What the automated tests prove today (CI, against mocks of every external service):
 
@@ -114,7 +114,7 @@ Modes: `DEMO_MODE=true` (mail only to `DEMO_EMAIL_ALLOWLIST`, others redirected)
 
 ### Gemini
 1. Create a key at <https://aistudio.google.com/app/apikey> → `GEMINI_API_KEY`.
-2. Free tier is enough for development; its data may be used by Google, so only send synthetic or public data through it. Use the paid tier (or Vertex AI) for client data.
+2. The free tier is enough for development, but its daily request cap is low (20 requests per model per day on 2026-11-27, and the limits change; see the [rate limits](https://aistudio.google.com/docs/rate-limits)). A lead makes 3 Gemini calls (`make eval` adds a judge call), so the free tier handles about 5 leads a day and can't run the 30-lead eval in one go. Its data may also be used by Google, so only send synthetic or public data through it. Use the paid tier (or Vertex AI) for client data and for `make eval`.
 
 ### Tavily
 Sign up at <https://app.tavily.com> → `TAVILY_API_KEY`. The free tier has 1,000 credits a month; a lead uses about 2.
@@ -144,7 +144,7 @@ Gmail: turn on 2-step verification, create an app password at <https://myaccount
 ```bash
 make dev && make credentials import        # with real GEMINI/TAVILY keys in .env
 # .env: DEMO_MODE=true, EVAL_AUTO_APPROVE=true (eval leads are approved automatically)
-make eval                                  # ~15 min on the free tier (20 s between leads)
+make eval                                  # needs Gemini's paid tier (the free daily cap is ~5 leads); resumable, errored leads are retried
 ```
 
 The harness ([`eval/run.py`](eval/run.py)) posts each lead in [`eval/leads.jsonl`](eval/leads.jsonl) to the signed webhook, waits for the outcome in the leads table and runs an **LLM judge** on every draft: each claim must be supported by the lead's message or the research sources. It reports tier accuracy and a confusion matrix, spam/duplicate handling, grounding, p50/p95 time from submission to the approval request, tokens and Tavily credits per lead, and the paid-tier cost per lead from [`eval/prices.json`](eval/prices.json). Results are cached in `eval/.cache`, so re-runs only spend credits on changed leads; `--fresh` re-runs everything. `make eval-mock` runs the same harness against the test stack (CI).
