@@ -58,7 +58,7 @@ All milestones are on `main` at https://github.com/hamza533/ai-lead-qualifier-n8
   - `SLACK_BOT_TOKEN` (`chat:write`), `SLACK_APPROVAL_CHANNEL`, `SLACK_ALERTS_CHANNEL`
   - `SMTP_USER`, `SMTP_PASSWORD` (Gmail app password), `EMAIL_FROM`, `DEMO_EMAIL_ALLOWLIST` (your inbox)
   - `cloudflared` installed for `make tunnel` (then set `N8N_WEBHOOK_URL` to the tunnel URL)
-- **Open Dependabot PRs** (#1 mailpit v1.34.0, #2 Python 3.15 for the mock image, #3 Postgres 19): review before merging. Postgres 17 → 19 is a major upgrade that needs a dump/restore of existing data and a check that n8n 2.49 supports it; follow the README upgrade runbook.
+- **Dependabot:** mailpit v1.34.0 (#1) and Python 3.15 for the mock image (#2) merged with green CI. The Postgres 19 bump (#3) was closed: 17 → 19 is a major upgrade that needs a dump/restore and a check that n8n supports it; do it through the README upgrade runbook.
 - **This machine:** GNU make isn't installed (run the Makefile one-liners with `uv run …`, or install make); run uv from PowerShell (Git Bash doesn't resolve uv's Python link); ports 5678/8025 are used by another project, so `.env` sets `N8N_HOST_PORT=5680` and `MAILPIT_HOST_PORT=8026`.
 - **After running the test stack**, n8n's SMTP credential points at mailpit; run `make credentials` again before using the dev stack with real email.
 - **Not verified against the real services** (no keys): Gemini's acceptance of the response schemas, Tavily response shapes beyond the documented ones, HubSpot v3 association type IDs (202/190/204/192), Slack Block Kit rendering. The first real lead with `make tunnel` checks all of them; `DRY_RUN=true` lets you inspect every outgoing payload first.
