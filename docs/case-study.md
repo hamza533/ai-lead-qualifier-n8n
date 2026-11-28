@@ -1,6 +1,6 @@
 # Upwork case study (draft)
 
-> Fill in the bracketed numbers from `eval/results.md` after `make eval` with real keys.
+> Numbers are from the real-key spot check (`eval/results-spotcheck.md`, 5 hot leads). Replace them with `eval/results.md` after the full `make eval` on Gemini's paid tier.
 
 **Title:** AI lead qualification agent in n8n: researched, scored and answered in minutes, with a human approving every email
 
@@ -16,4 +16,4 @@
 
 **Stack.** n8n (self-hosted, Postgres, task runners) · Gemini 3.5 Flash · Tavily · Slack · HubSpot CRM v3 · SMTP · Postgres · pytest with mocks for every external service in CI · Azure Container Apps (n8n queue mode), Postgres Flexible Server, Redis, Key Vault (Bicep, validated in CI).
 
-**Result.** Researches and scores a lead in about [N] s and has a reply waiting in Slack within [p50] s; [X]% tier accuracy on 30 test leads; [Y]% of email claims traceable to the lead's message or sources; approval in one click; about $0.02 per lead in production API costs. Spam and duplicate submissions are blocked 100% of the time (tested), and an existing CRM contact is always updated, never duplicated (tested).
+**Result.** Researches, scores and drafts a reply for a lead, with the approval request in Slack after a median of 81 s on real keys (20 s when the model isn't under load). In a real-key spot check, 5/5 hot leads were scored hot and 9/9 factual claims in the drafts traced back to the lead's message or a cited source. Approval takes one click, and production API costs are about $0.03 per lead. Spam and duplicate submissions are always blocked and an existing CRM contact is always updated, never duplicated (both covered by automated tests). The full 30-lead evaluation is ready to run (`make eval`).

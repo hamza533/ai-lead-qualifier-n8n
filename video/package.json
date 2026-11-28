@@ -1,0 +1,26 @@
+{
+  "name": "leadpilot-demo-video",
+  "version": "1.0.0",
+  "private": true,
+  "description": "LeadPilot product demo video (Remotion). Dev-only tool, not part of the runtime stack.",
+  "scripts": {
+    "capture": "node scripts/capture.mjs",
+    "dev": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts LeadPilotDemo out/leadpilot-demo.mp4",
+    "render:nobgm": "remotion render src/index.ts LeadPilotDemo out/leadpilot-demo-nobgm.mp4 --props=props-nobgm.json",
+    "stills": "node scripts/stills.mjs out/qa"
+  },
+  "dependencies": {
+    "@fontsource/inter": "5.2.8",
+    "@remotion/cli": "4.0.484",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "remotion": "4.0.484"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.17",
+    "typescript": "6.0.3",
+    "@remotion/bundler": "4.0.484",
+    "@remotion/renderer": "4.0.484"
+  }
+}
