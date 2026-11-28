@@ -22,7 +22,9 @@ All milestones are on `main` at https://github.com/hamza533/ai-lead-qualifier-n8
 
 **Live run (2026-11-27):** one lead with `DRY_RUN=false`: Slack approval post, email sent (demo redirect to the allow-list), then HubSpot rejected the synthetic `.test` address; after correcting it, `replay` resumed at the CRM step without re-sending and created the contact, company, note and task. Gemini took 41 s and 91 s on two calls in that run (20 s end to end in the dry run).
 
-**Next step (owner):** turn off HubSpot's automatic company creation (README, HubSpot setup step 4), then `make tunnel` for Slack-button approvals from outside, `make eval` and copy the numbers into the README, `docs/ui` (re-render) and `docs/case-study.md`. Record the demo GIF and video.
+**Results (2026-11-28):** the 30-lead `make eval` hit Gemini's free-tier cap (20 requests/model/day ≈ 5 leads); the owner chose to publish the real-key spot check instead (`eval/results-spotcheck.md`: 5/5 hot leads scored hot, 9/9 draft claims traced, median 81 s to the approval request, ≈ $0.03 per lead). README, case study and `docs/ui` frames use those numbers; the warm/cold accuracy is marked pending. HubSpot test records archived, automatic company creation turned off by the owner, tunnel tested end to end (then closed). Demo video (64 s, with and without music) and the README GIF are built with Remotion in `video/` (DECISIONS 64), reviewed by an independent agent and fixed.
+
+**Next step (owner):** run the full `make eval` on Gemini's paid tier and fill the warm/cold numbers; record the real n8n/Slack/HubSpot moments for client calls; decide where to host the MP4 (e.g. a GitHub release).
 
 ## Acceptance criteria (SPEC §9)
 
@@ -91,3 +93,4 @@ Expected: `make check` all green; e2e and dry-run suites all passed; eval-mock w
 - 2026-11-27 – Claude Code – Pushed to GitHub (public); fixed CI (YAML quoting, trivy-action pinned by SHA, readiness wait before eval-mock, patched mock image CVEs); CI and CodeQL green.
 - 2026-11-27 – Claude Code – Real keys: switched to gemini-3.5-flash (2.5 Flash is closed to new users, 3.8 Flash was overloaded), first real dry-run lead passed end to end; `make credentials` no longer warns about the unused Slack signing secret.
 - 2026-11-27 – Claude Code – First live lead: Slack, email and HubSpot all real; found HubSpot's `.test` rejection and its auto-created email-domain company; recovered with `replay` (no second email).
+- 2026-11-28 – Claude Code – Real-key spot-check numbers in README/frames/case study; eval harness fixes (no caching of quota errors, judge ignores greetings); demo video + GIF (Remotion, independent review, fixes); approval/CRM screens now show the same email.

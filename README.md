@@ -1,10 +1,10 @@
 # AI Lead Qualifier (n8n) – LeadPilot
 
-![LeadPilot: every lead researched, scored and answered in minutes](docs/ui/01-landing.png)
+![LeadPilot demo: lead form, research, score, Slack approval, email and HubSpot, results](docs/media/demo.gif)
 
 **Every new lead researched, scored and answered within minutes, with a human approving every email.**
 
-[Live demo](#demo-and-hosting) · [2-min video](#demo-and-hosting) · [Architecture](docs/architecture.md) · [Evaluation](eval/results.md)
+[Live demo](#demo-and-hosting) · [1-min video](#demo-and-hosting) · [Architecture](docs/architecture.md) · [Evaluation](eval/results-spotcheck.md)
 
 > The screens above and in `docs/ui/` are showcase designs for the video and README. The product itself runs in n8n (form and workflows), Slack (approval) and HubSpot (CRM).
 
@@ -135,9 +135,10 @@ Sign up at <https://app.tavily.com> → `TAVILY_API_KEY`. The free tier has 1,00
 Gmail: turn on 2-step verification, create an app password at <https://myaccount.google.com/apppasswords>, then `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=465`, `SMTP_SECURE=true`, `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM`. Any SMTP provider works the same way. Keep `DEMO_MODE=true` and put your own inbox in `DEMO_EMAIL_ALLOWLIST` while demoing.
 
 ### Public URL for demos (Cloudflare Tunnel)
-1. Install `cloudflared` (<https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/>).
+1. Install `cloudflared` (<https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/>; on Windows `winget install Cloudflare.cloudflared`).
 2. `make tunnel` prints a `https://….trycloudflare.com` URL.
 3. Set `N8N_WEBHOOK_URL=<that URL>/` in `.env` and `docker compose up -d n8n` to restart. The form, the signed webhook and the approval links now use the public URL.
+4. The quick-tunnel URL changes on every run and needs ~15 s before it resolves. It exposes your n8n instance (still behind its login), so stop the tunnel after the demo and set `N8N_WEBHOOK_URL` back to `http://localhost:<port>/`.
 
 ## Evaluation
 
@@ -185,6 +186,8 @@ HubSpot, Slack and SMTP are the client's existing accounts. Basic-tier Redis (no
 ## Demo and hosting
 
 There is no always-on hosted demo: free hosting tiers sleep, which breaks Slack approvals, and n8n's Sustainable Use License doesn't allow hosting clients' workflows as a service. The demo runs locally with `make tunnel` for a public URL, which is also how the video is recorded.
+
+**Demo video.** A 64 s walkthrough built from the [`docs/ui`](docs/ui) showcase screens with Remotion in [`video/`](video) (see its README: re-capture the screens, then `npm run render` and `npm run render:nobgm` for the versions with and without music; the GIF above is cut from it). The MP4s are build outputs and not committed. Screen recordings of the real n8n, Slack and HubSpot steps can be cut in for client calls.
 
 ## License note
 
